@@ -7,3 +7,5 @@
 Backends ligados somente a HMAC/TOTP 0.1.0; ContadorBanco e as classes locais de login permanecem. Não trocar a dependência para 0.2.0 automaticamente. Seus commits devem permanecer locais até o usuário configurar leitura de pacotes.
 
 Sem token pessoal, alterações em ~/.m2/settings.xml, merge ou deploy. Apenas a publicação das tags usa o GITHUB_TOKEN próprio dos Actions. Permissões Maven são herdadas do repositório; token pessoal de leitura precisa ser classic, não fine-grained. README e manuais dos consumidores descrevem essa correção ao roteiro original.
+
+Publicação 0.2.0: commit 79d7a79 enviado na main e tag java-v0.2.0. Workflow [37132301938](https://github.com/GustavoToebe/servirea-comum/actions/runs/37132301938) concluiu testes e publicação com sucesso.
