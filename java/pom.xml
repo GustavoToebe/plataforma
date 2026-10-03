@@ -5,7 +5,7 @@
 
     <groupId>br.com.servirea</groupId>
     <artifactId>servirea-comum</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
     <packaging>jar</packaging>
     <name>servirea-comum</name>
     <description>Código Java comum ao Servirea e à Central: sem Spring e sem banco, só o que os dois lados precisam fazer igual.</description>

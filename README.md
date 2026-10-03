@@ -38,7 +38,7 @@ Os testes são os mesmos dos dois sistemas, com os vetores oficiais.
 
 ## Como publicar uma versão
 
-1. Mude a versão em `java/pom.xml` (ex.: `0.2.0`) e faça merge.
+1. Mude a versão em `java/pom.xml` (ex.: `0.2.0`) e registre o commit na main autorizada.
 2. Crie a tag `java-v0.2.0` no mesmo commit. O workflow testa e publica sozinho.
 3. Versões publicadas **não se alteram**: correção vira versão nova.
 
@@ -54,3 +54,13 @@ Os testes são os mesmos dos dois sistemas, com os vetores oficiais.
 2. `MonitoramentoFilter` e `IntegracaoNonceService`.
 3. Componentes Angular comuns (barra de filtros, cabeçalho, modal, estado de lista, rodapé de formulário, favoritos e busca global).
 4. Tirar `scripts/verificar-copias.py` da Central quando as cópias acabarem.
+
+## Versão 0.2.0 — núcleo de limites de login
+
+Pacote `br.com.servirea.comum.login`: ContadorJanelas público, ContadorEmMemoria público, LimiteLogin e LimiteLoginException. As fontes dos dois backends foram comparadas e são iguais após normalizar produto/pacote. O núcleo foi separado da injeção Spring e do mapeamento HTTP; não depende de Spring, JDBC ou ApiException. A aplicação fornece contador, Clock e sal pelo construtor público. A exceção mantém mensagem, segundos e código LOGIN_LIMITADO, mas é RuntimeException: uma futura integração precisa mapear HTTP 429 no domínio.
+
+ContadorBanco permanece em cada backend. Quando houver integração com 0.2.0, deverá implementar a interface da biblioteca e o bean Spring deverá construir o limitador com a configuração própria. **Os backends seguem fixados em 0.1.0 e mantêm suas classes de login**: nada dessa segunda etapa foi ligado a eles. Não trocar automaticamente a versão.
+
+Maven Packages exige token pessoal classic com read:packages para leitura fora do Actions; fine-grained não é suportado. Permissões Maven são herdadas do repositório; Manage Actions access pertence aos registries com permissões granulares. Ver [documentação oficial](https://docs.github.com/en/packages/learn-github-packages/about-permissions-for-github-packages).
+
+- [Instruções para agentes](AGENTS.md) e [registro de retomada](docs/RETOMADA.md).
