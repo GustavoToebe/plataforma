@@ -1,11 +1,13 @@
-# Retomada — 03/10/2026
+# Retomada
 
-0.1.0 validada com `mvn verify` (5 testes), publicada pela tag java-v0.1.0 no commit 379ce3a. Workflow 37131221029 concluiu testes e publicação com sucesso. `mvn -o install` instalou a versão no cache local sem token pessoal.
+## Versões publicadas
+- **0.1.0:** `seguranca` (`HmacAssinatura` e `Totp`), tag `java-v0.1.0`.
+- **0.2.0:** acrescenta `login` (`ContadorJanelas`, `ContadorEmMemoria`, `LimiteLogin`, `LimiteLoginException`), tag `java-v0.2.0`. As fontes dos dois backends foram comparadas e o núcleo é igual depois de normalizar produto e pacote.
 
-0.2.0 extrai ContadorJanelas, ContadorEmMemoria, LimiteLogin e LimiteLoginException após comparar as fontes normalizadas dos dois backends. Adaptadores Spring, configuração e exceção HTTP permanecem nos sistemas. O núcleo não depende de Spring/JDBC; a exceção de biblioteca é RuntimeException com segundos/código e pede mapeamento HTTP numa futura integração. `mvn -o verify`: 9 testes, zero falhas/erros/ignorados. Inclui contrato de injeção de contador externo com chaves anonimizadas e prazo.
+Versão publicada não muda: correção vira versão nova.
 
-Backends ligados somente a HMAC/TOTP 0.1.0; ContadorBanco e as classes locais de login permanecem. Não trocar a dependência para 0.2.0 automaticamente. Seus commits devem permanecer locais até o usuário configurar leitura de pacotes.
+## Uso pelos sistemas
+Central e Servirea usam a 0.2.0. Em cada um ficam o `ContadorBanco` (implementa `ContadorJanelas`), o bean Spring do limitador (limites vindos da configuração do sistema) e o `@ExceptionHandler` que mapeia `LimiteLoginException` para HTTP 429 com o código `LOGIN_LIMITADO`. O `Retry-After` é posto pelos controllers de login e de MFA.
 
-Sem token pessoal, alterações em ~/.m2/settings.xml, merge ou deploy. Apenas a publicação das tags usa o GITHUB_TOKEN próprio dos Actions. Permissões Maven são herdadas do repositório; token pessoal de leitura precisa ser classic, não fine-grained. README e manuais dos consumidores descrevem essa correção ao roteiro original.
-
-Publicação 0.2.0: commit 79d7a79 enviado na main e tag java-v0.2.0. Workflow [37132301938](https://github.com/GustavoToebe/servirea-comum/actions/runs/37132301938) concluiu testes e publicação com sucesso.
+## Validação
+`cd java; mvn verify` (9 testes). A publicação usa só o `GITHUB_TOKEN` do Actions, pela tag.
