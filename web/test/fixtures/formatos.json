@@ -1,0 +1,55 @@
+{
+  "_origem": "FormatosTest.java (Central e Servirea) e formatos.spec.ts (fronts). O Java grava formatado e responde null para vazio; aqui, vazio é inválido e formata para ''.",
+  "vazios": ["", "   "],
+  "cpf": {
+    "validos": [
+      { "entrada": "52998224725", "formatado": "529.982.247-25" },
+      { "entrada": " 529.982.247-25 ", "formatado": "529.982.247-25" }
+    ],
+    "invalidos": ["529.982.247-24", "101175", "111.111.111-11", "529.982.247-255"]
+  },
+  "cnpj": {
+    "validos": [
+      { "entrada": "11222333000181", "formatado": "11.222.333/0001-81" },
+      { "entrada": "12.abc.345/01de-35", "formatado": "12.ABC.345/01DE-35" },
+      { "entrada": "12.ABC.345/01DE-35", "formatado": "12.ABC.345/01DE-35" }
+    ],
+    "invalidos": ["12.ABC.345/01DE-36", "00.000.000/0000-00", "12.ABC.345/01DE-3A", "1122233300018"]
+  },
+  "cep": {
+    "validos": [
+      { "entrada": "85800000", "formatado": "85800-000" },
+      { "entrada": "85.800-000", "formatado": "85800-000" }
+    ],
+    "invalidos": ["8580000", "858000000"]
+  },
+  "uf": {
+    "validos": [
+      { "entrada": " pr ", "formatado": "PR" },
+      { "entrada": "SP", "formatado": "SP" }
+    ],
+    "invalidos": ["XX", "P", "PRR"]
+  },
+  "telefone": {
+    "validos": [
+      { "entrada": "45999998888", "formatado": "(45) 99999-8888" },
+      { "entrada": "(45) 3222-1111", "formatado": "(45) 3222-1111" },
+      { "entrada": "+55 45 99999-8888", "formatado": "(45) 99999-8888" },
+      { "entrada": "554532221111", "formatado": "(45) 3222-1111" }
+    ],
+    "invalidos": [
+      "99999-8888",
+      "(45) 89999-8888",
+      "(05) 99999-8888",
+      "(45) 1222-1111",
+      "(10) 3222-1111",
+      "(45) 9999-8888",
+      "45399998888",
+      "123456789012"
+    ]
+  },
+  "email": {
+    "validos": ["ana@paroquia.org.br", "gustavo@teste.local"],
+    "invalidos": ["ana@paroquia", "ana paroquia@x.com", "ana@@x.com", "@x.com", "ana@x.c"]
+  }
+}
