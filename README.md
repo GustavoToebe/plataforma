@@ -74,6 +74,10 @@ Pacote `br.com.plataforma.comum.central`; só liga com `plataforma.central.habil
 - **Nomes de bean** com prefixo `plataforma`; todos cedem a um bean do sistema do mesmo tipo.
 - Fica nos sistemas: os controllers das rotas `/integracao/v1/**` (provisionar, consultar, webhook, código de suporte, catálogo), o que provisionar significa em cada produto (criar tenant, consultoria), o agendador da sincronização (8 h, retry de 30 min, alerta às 24 h, bloqueio às 72 h), o relato de erros de servidor à Central (6.2) e o consumo. Na adoção: trocar `direitos_locais`, `integracao_nonce` e `integracao_operacao` do sistema pelas do módulo (recomeçar, antes do primeiro cliente).
 
+## Pacote web (TypeScript)
+
+`web/` é o `@plataforma/web`: o que os fronts (Angular, Expo) precisam fazer **igual**, em TypeScript puro e sem dependência de runtime. Fica fora do reator Maven, com versão e tag próprias (`web-vX.Y.Z`), e é distribuído como `.tgz` numa Release do GitHub, sem token. Uso, entradas e publicação em [web/README.md](web/README.md).
+
 ## Como usar num sistema
 
 1. No `pom.xml` do sistema:
@@ -98,6 +102,8 @@ Pacote `br.com.plataforma.comum.central`; só liga com `plataforma.central.habil
 1. Numa branch curta, mude a versão em todos os `pom.xml` (`mvn versions:set -DnewVersion=1.1.0`) e abra o pull request.
 2. Com o CI do pull request verde, crie a tag `v1.1.0` na branch. O workflow testa e publica todos os módulos de uma vez (`deployAtEnd`).
 3. Versões publicadas **não se alteram**: correção vira versão nova. O merge do pull request é do Gustavo, sem squash.
+
+O pacote `web/` segue outro caminho: o workflow `web.yml` testa a pasta em todo pull request e, na tag `web-vX.Y.Z` (igual à versão do `web/package.json`), publica a Release com o `.tgz`. A tag `web-v*` não dispara o `java.yml`.
 
 ## Regras de mudança
 

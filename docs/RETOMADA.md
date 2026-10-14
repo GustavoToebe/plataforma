@@ -22,6 +22,8 @@
 - **1.7.0** (tag `v1.7.0`, PR sobre a `main`; só acréscimos para a Fase 5): `LimiteLoginException.primeiroBloqueio()`; propósitos do aplicativo (`plataforma.auth.jwt.propositos`, `JwtService.emitir`, `Autenticador.autenticarComo`); `Autenticador.verificarCredenciais`, `novaSessao(..., extras)` e `renovar(refresh, ip, extrasDoSujeito)` (a função roda na transação da rotação; exceção desfaz); `emitirSuporte(..., extras)`; `UsuariosDaAutenticacao.versaoDeSuporte`. Nada que existia mudou de comportamento (o construtor do record `AuthProperties.Jwt` ganhou o componente `propositos`).
 - **1.8.0** (PR sobre a `main`, tag só depois da revisão; só acréscimo): `Mfa.renovarRecuperacao(sujeito, codigo)`, que o botão "Gerar novos códigos" do Servirea usa.
 
+- **`@plataforma/web` 0.1.0** (pasta `web/`, tag `web-v0.1.0` só depois da revisão; PR sobre a `main`): TypeScript puro para os fronts, fora do reator Maven. `destino-api`, `formatos` (as regras do `Formatos.java`, sem RG e sexo), `erros` (`ErroApi`, `mensagemApi`), `autenticacao` (refresh compartilhado, XSRF só em escrita, desistir só com 401/403) e `tokens` (os 3 pilares do design). Release do GitHub com o `.tgz`, sem token. O `consultoria-app` adota na sequência; os fronts Angular adotam depois.
+
 Versão publicada não muda: correção vira versão nova. Os sistemas adotam os módulos a partir da 1.6.0 (a Fase 5 usa a 1.7.0 e, no Servirea, a 1.8.0; as 1.1.0–1.5.0 ficam publicadas, sem uso).
 
 ## Uso pelos sistemas
