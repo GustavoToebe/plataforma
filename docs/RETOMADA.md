@@ -11,13 +11,15 @@
 
 - **`plataforma-comum-auth` 1.4.0** (tag `v1.4.0`, PR empilhado sobre o do `teste`): `Autenticador`, `JwtService` (access de 15 min com `cv`, propósitos `access` e `suporte`), `RefreshTokens` (opaco, rotação, reuso revoga tudo com a revogação confirmada antes do 401), `CookieDeRefresh`, `PoliticaCsrf`, `Mfa` (TOTP cifrado + recuperação) e o limite de login no banco, tudo no schema `plataforma` com Flyway próprio. Extraído de Central e Servirea (o consultoria-app não tem MFA nem sessão de suporte; o limite dele tem regras extras que ficam no app). Ver README, seção "Módulo auth".
 
+- **`plataforma-comum-central` 1.5.0** (tag `v1.5.0`, PR empilhado sobre o do `auth`): filtro HMAC de entrada com nonce (`IntegracaoFiltro`), `CentralClient` assinado, `Idempotencia` e `DireitosLocais`, no schema `plataforma_integracao` com Flyway próprio. Extraído comparando Servirea e consultoria-app com o contrato da Central; onde divergem, vale o contrato. Ver README, seção "Módulo central".
+
 Versão publicada não muda: correção vira versão nova.
 
 ## Uso pelos sistemas
 Central e Servirea adotam o parent e a `plataforma-comum-seguranca` na Fase 4. Em cada um ficam o `ContadorBanco` (implementa `ContadorJanelas`), o bean Spring do limitador (limites vindos da configuração do sistema) e o `@ExceptionHandler` que mapeia `LimiteLoginException` para HTTP 429 com o código `LOGIN_LIMITADO`. O `Retry-After` é posto pelos controllers de login e de MFA.
 
 ## Próximos módulos (um por vez, cada um num pull request empilhado)
-~~`web`~~ (1.1.0) → ~~`monitoramento`~~ (1.2.0) → ~~`teste`~~ (1.3.0) → ~~`auth`~~ (1.4.0) → `central`. Extraídos da Central (a referência mais testada); o `central` compara Servirea e consultoria-app contra `docs/contrato-integracao-v1.md` da Central. Central e Servirea só adotam depois da revisão do Gustavo.
+~~`web`~~ (1.1.0) → ~~`monitoramento`~~ (1.2.0) → ~~`teste`~~ (1.3.0) → ~~`auth`~~ (1.4.0) → ~~`central`~~ (1.5.0). Extraídos da Central (a referência mais testada); o `central` compara Servirea e consultoria-app contra `docs/contrato-integracao-v1.md` da Central. Central e Servirea só adotam depois da revisão do Gustavo.
 
 ## Validação
 `mvn verify` na raiz, com o JDK 25 (9 testes no módulo de segurança). A publicação usa só o `GITHUB_TOKEN` do Actions, pela tag.
