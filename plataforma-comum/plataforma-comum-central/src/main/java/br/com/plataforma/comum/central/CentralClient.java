@@ -85,9 +85,11 @@ public class CentralClient {
             throw new IllegalStateException("plataforma.central.central-url é obrigatório para o cliente de saída.");
         }
         URI uri = URI.create(url.trim());
-        if (uri.getHost() == null || !("https".equals(uri.getScheme()) || ("http".equals(uri.getScheme()) && loopback(uri.getHost())))) {
+        if (uri.getHost() == null || !("https".equals(uri.getScheme())
+                || ("http".equals(uri.getScheme()) && (loopback(uri.getHost()) || (propriedades.redeInterna() && nomeDeServico(uri.getHost())))))) {
             // As respostas da Central não são assinadas: em http puro, alguém no caminho adulteraria a sincronização de direitos.
-            throw new IllegalStateException("plataforma.central.central-url precisa ser https (http só para localhost).");
+            throw new IllegalStateException("plataforma.central.central-url precisa ser https (http só para localhost"
+                    + " ou, com plataforma.central.rede-interna, para um nome de serviço da rede interna).");
         }
         this.base = url.trim().replaceAll("/+$", "");
         this.chaveId = propriedades.chaveSaidaId();
@@ -114,6 +116,11 @@ public class CentralClient {
         } catch (IOException e) {
             // a leitura em andamento já vai falhar; nada a fazer aqui
         }
+    }
+
+    /** Um só rótulo, sem ponto e sem ':' nem número IP (ex.: {@code central-api}): só resolve na rede interna, nunca na internet. */
+    private static boolean nomeDeServico(String host) {
+        return host.matches("[A-Za-z][A-Za-z0-9-]{0,62}");
     }
 
     private static boolean loopback(String host) {
