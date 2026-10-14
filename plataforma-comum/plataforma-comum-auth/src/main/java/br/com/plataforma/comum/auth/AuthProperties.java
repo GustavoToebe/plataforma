@@ -95,8 +95,14 @@ public record AuthProperties(
                       @DefaultValue("plataforma") String contexto) {
     }
 
-    /** Credencial de migração, quando o usuário do banco em execução não pode criar schema (padrão: o DataSource do sistema). */
-    public record Migracao(String url, String user, String password) {
+    /**
+     * Credencial de migração, quando o usuário do banco em execução não pode criar schema (padrão: o DataSource do sistema).
+     *
+     * @param papelApp papel do banco que a API usa em execução, quando difere de quem migra (separação migrador/app): ele
+     *                 recebe uso do schema {@code plataforma} e SELECT/INSERT/UPDATE/DELETE nas tabelas, a cada subida. Vazio =
+     *                 o mesmo usuário nos dois papéis, nada a conceder.
+     */
+    public record Migracao(String url, String user, String password, String papelApp) {
     }
 
     public AuthProperties {
@@ -107,6 +113,9 @@ public record AuthProperties(
         }
         if (jwt.suporteTtlMax().compareTo(Duration.ofHours(8)) > 0 || jwt.suporteTtlMax().isNegative() || jwt.suporteTtlMax().isZero()) {
             throw new IllegalArgumentException("plataforma.auth.jwt.suporte-ttl-max precisa ficar entre 1 segundo e 8 horas.");
+        }
+        if (migracao.papelApp() != null && !migracao.papelApp().isBlank() && !migracao.papelApp().matches("[A-Za-z_][A-Za-z0-9_]{0,62}")) {
+            throw new IllegalArgumentException("plataforma.auth.migracao.papel-app não é um nome de papel válido.");
         }
         if (refresh.ttl().isNegative() || refresh.ttl().isZero()) {
             throw new IllegalArgumentException("plataforma.auth.refresh.ttl precisa ser positivo.");

@@ -4,7 +4,11 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 
 import javax.crypto.SecretKey;
 
@@ -30,6 +34,8 @@ public final class JwtService {
     private static final String CLAIM_OPERADOR = "op";
     private static final String CLAIM_MOTIVO = "motivo";
     private static final String RECUSADO = "Token recusado.";
+    /** Nomes que o módulo controla; um claim extra do sistema nunca pode usá-los. */
+    private static final Set<String> RESERVADOS = Set.of("sub", "purpose", "cv", "exp", "iat", "nbf", "iss", "aud", "jti", "op", "motivo");
 
     private final SecretKey chave;
     private final AuthProperties.Jwt config;
@@ -52,7 +58,15 @@ public final class JwtService {
 
     /** Token de acesso comum. */
     public String emitirAcesso(String sujeito, long versao) {
-        return emitir(ACESSO, sujeito, versao, config.accessTtl(), null, null);
+        return emitir(ACESSO, sujeito, versao, config.accessTtl(), null, null, Map.of());
+    }
+
+    /**
+     * Token de acesso com claims do sistema (tenant, papéis...). Os nomes {@code sub}, {@code purpose}, {@code cv}, {@code exp},
+     * {@code iat} e afins são do módulo e recusados; os valores só podem ser texto, número, booleano ou lista de texto.
+     */
+    public String emitirAcesso(String sujeito, long versao, Map<String, ?> extras) {
+        return emitir(ACESSO, sujeito, versao, config.accessTtl(), null, null, extras);
     }
 
     /**
@@ -66,15 +80,18 @@ public final class JwtService {
         if (ttl.isNegative() || ttl.isZero() || ttl.compareTo(config.suporteTtlMax()) > 0) {
             throw new IllegalArgumentException("Prazo da sessão de suporte fora do limite.");
         }
-        return emitir(SUPORTE, sujeito, versao, ttl, operador, motivo);
+        return emitir(SUPORTE, sujeito, versao, ttl, operador, motivo, Map.of());
     }
 
     public long expiraEmSegundos() {
         return config.accessTtl().toSeconds();
     }
 
-    /** Confere assinatura, validade e propósito. Qualquer falha vira 401 com a mesma mensagem. */
-    public Token validar(String token, String proposito) {
+    /**
+     * Confere assinatura, validade e propósito. Qualquer falha vira 401 com a mesma mensagem. Fica no pacote de propósito: o
+     * caminho público é {@link Autenticador#autenticar}, que também compara o {@code cv} com a versão atual do usuário.
+     */
+    Token validar(String token, String proposito) {
         if (token == null || token.isBlank()) {
             throw new UnauthorizedException(RECUSADO);
         }
@@ -89,14 +106,21 @@ public final class JwtService {
             if (!(versao instanceof Number numero) || sujeito == null || sujeito.isBlank()) {
                 throw new UnauthorizedException(RECUSADO);
             }
+            Map<String, Object> extras = new HashMap<>();
+            claims.forEach((nome, valor) -> {
+                if (!RESERVADOS.contains(nome)) {
+                    extras.put(nome, valor);
+                }
+            });
             return new Token(sujeito, numero.longValue(), proposito,
-                    claims.get(CLAIM_OPERADOR, String.class), claims.get(CLAIM_MOTIVO, String.class));
+                    claims.get(CLAIM_OPERADOR, String.class), claims.get(CLAIM_MOTIVO, String.class), Map.copyOf(extras));
         } catch (JwtException | IllegalArgumentException e) {
             throw new UnauthorizedException(RECUSADO);
         }
     }
 
-    private String emitir(String proposito, String sujeito, long versao, Duration ttl, String operador, String motivo) {
+    private String emitir(String proposito, String sujeito, long versao, Duration ttl, String operador, String motivo,
+                         Map<String, ?> extras) {
         if (sujeito == null || sujeito.isBlank() || sujeito.length() > 120) {
             throw new IllegalArgumentException("Sujeito inválido.");
         }
@@ -110,11 +134,24 @@ public final class JwtService {
         if (operador != null) {
             construtor.claim(CLAIM_OPERADOR, operador).claim(CLAIM_MOTIVO, motivo);
         }
+        extras.forEach((nome, valor) -> construtor.claim(validarExtra(nome, valor), valor));
         return construtor.signWith(chave).compact();
     }
 
-    /** Conteúdo já verificado de um token. {@code operador} e {@code motivo} só existem no token de suporte. */
-    public record Token(String sujeito, long versao, String proposito, String operador, String motivo) {
+    private static String validarExtra(String nome, Object valor) {
+        if (nome == null || nome.isBlank() || RESERVADOS.contains(nome)) {
+            throw new IllegalArgumentException("Claim extra com nome reservado ou vazio: " + nome);
+        }
+        boolean simples = valor instanceof String || valor instanceof Number || valor instanceof Boolean;
+        boolean listaDeTexto = valor instanceof Collection<?> itens && itens.stream().allMatch(String.class::isInstance);
+        if (!simples && !listaDeTexto) {
+            throw new IllegalArgumentException("Claim extra '" + nome + "' precisa ser texto, número, booleano ou lista de texto.");
+        }
+        return nome;
+    }
+
+    /** Conteúdo já verificado de um token. {@code operador} e {@code motivo} só existem no token de suporte; {@code extras} são os claims do sistema. */
+    public record Token(String sujeito, long versao, String proposito, String operador, String motivo, Map<String, Object> extras) {
         public boolean suporte() {
             return SUPORTE.equals(proposito);
         }

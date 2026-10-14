@@ -21,7 +21,8 @@ import br.com.plataforma.comum.seguranca.login.LimiteLogin;
 /**
  * Liga a autenticação comum quando {@code plataforma.auth.habilitado=true}. O sistema precisa fornecer um
  * {@link UsuariosDaAutenticacao} e um {@link PasswordEncoder}; sem eles a aplicação não sobe (de propósito: ligar o módulo pela
- * metade deixaria a autenticação sem dono). Os beans cedem a um bean do sistema com o mesmo tipo.
+ * metade deixaria a autenticação sem dono). Os beans cedem a um bean do sistema com o mesmo tipo e todos têm nome com prefixo {@code plataforma}, para não colidir com as classes
+ * que o sistema ainda tem (um {@code JwtService} ou {@code CookieDeRefresh} próprio) durante a adoção.
  */
 @AutoConfiguration(
         afterName = {
@@ -38,41 +39,41 @@ public class PlataformaAuthAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public Clock relogioDaAutenticacao() {
+    public Clock plataformaRelogio() {
         return Clock.systemUTC();
     }
 
     @Bean(initMethod = "executar")
-    MigracaoPlataforma migracaoPlataforma(DataSource dataSource, AuthProperties propriedades) {
+    MigracaoPlataforma plataformaMigracao(DataSource dataSource, AuthProperties propriedades) {
         return new MigracaoPlataforma(dataSource, propriedades.migracao());
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public JwtService jwtService(AuthProperties propriedades, Clock relogio) {
+    public JwtService plataformaJwtService(AuthProperties propriedades, Clock relogio) {
         return new JwtService(propriedades, relogio);
     }
 
     @Bean
-    @DependsOn("migracaoPlataforma")
+    @DependsOn("plataformaMigracao")
     @ConditionalOnMissingBean
-    public RefreshTokens refreshTokens(JdbcTemplate jdbc, PlatformTransactionManager transacoes, AuthProperties propriedades,
+    public RefreshTokens plataformaRefreshTokens(JdbcTemplate jdbc, PlatformTransactionManager transacoes, AuthProperties propriedades,
                                        UsuariosDaAutenticacao usuarios, Clock relogio) {
         return new RefreshTokens(jdbc, transacoes, propriedades, usuarios, relogio);
     }
 
     @Bean
-    @DependsOn("migracaoPlataforma")
+    @DependsOn("plataformaMigracao")
     @ConditionalOnMissingBean
-    public Mfa mfa(JdbcTemplate jdbc, PlatformTransactionManager transacoes, AuthProperties propriedades, RefreshTokens refresh,
+    public Mfa plataformaMfa(JdbcTemplate jdbc, PlatformTransactionManager transacoes, AuthProperties propriedades, RefreshTokens refresh,
                    Clock relogio) {
         return new Mfa(jdbc, transacoes, new MfaCifra(propriedades.mfa()), refresh, relogio);
     }
 
     @Bean
-    @DependsOn("migracaoPlataforma")
+    @DependsOn("plataformaMigracao")
     @ConditionalOnMissingBean
-    public LimiteLogin limiteLogin(JdbcTemplate jdbc, AuthProperties propriedades, Clock relogio) {
+    public LimiteLogin plataformaLimiteLogin(JdbcTemplate jdbc, AuthProperties propriedades, Clock relogio) {
         AuthProperties.Login login = propriedades.login();
         String sal = login.sal() == null || login.sal().isBlank() ? "limite-login:" + propriedades.jwt().secret() : login.sal();
         return new LimiteLogin(login.limiteIp(), login.limiteConta(), login.janelaSegundos(), new ContadorBanco(jdbc), relogio, sal);
@@ -80,20 +81,20 @@ public class PlataformaAuthAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public Autenticador autenticador(UsuariosDaAutenticacao usuarios, PasswordEncoder senhas, LimiteLogin limite, Mfa mfa,
+    public Autenticador plataformaAutenticador(UsuariosDaAutenticacao usuarios, PasswordEncoder senhas, LimiteLogin limite, Mfa mfa,
                                      JwtService jwt, RefreshTokens refresh) {
         return new Autenticador(usuarios, senhas, limite, mfa, jwt, refresh);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public CookieDeRefresh cookieDeRefresh(AuthProperties propriedades) {
+    public CookieDeRefresh plataformaCookieDeRefresh(AuthProperties propriedades) {
         return new CookieDeRefresh(propriedades);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public PoliticaCsrf politicaCsrf(AuthProperties propriedades, CookieDeRefresh cookie) {
+    public PoliticaCsrf plataformaPoliticaCsrf(AuthProperties propriedades, CookieDeRefresh cookie) {
         return new PoliticaCsrf(propriedades, cookie);
     }
 }

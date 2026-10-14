@@ -20,7 +20,7 @@ class ConfiguracaoTest {
     private static AuthProperties propriedades(AuthProperties.Cookie cookie, AuthProperties.Csrf csrf, AuthProperties.Jwt jwt) {
         return new AuthProperties(true, jwt, new AuthProperties.Refresh(Duration.ofDays(7)), cookie, csrf,
                 new AuthProperties.Login(60, 10, 600, null), new AuthProperties.Mfa(null, null, "x"),
-                new AuthProperties.Migracao(null, null, null));
+                new AuthProperties.Migracao(null, null, null, null));
     }
 
     private static AuthProperties padrao() {
@@ -43,6 +43,27 @@ class ConfiguracaoTest {
                 new AuthProperties.Csrf("c", "h", "/", null, true, "Lax", false),
                 new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1))))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void papelDoAppPrecisaSerNomeDeIdentificador() {
+        assertThatThrownBy(() -> new AuthProperties(true, new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1)),
+                new AuthProperties.Refresh(Duration.ofDays(7)), new AuthProperties.Cookie("r", "/", null, true, "Strict"),
+                new AuthProperties.Csrf("c", "h", "/", null, true, "Lax", false), new AuthProperties.Login(60, 10, 600, null),
+                new AuthProperties.Mfa(null, null, "x"), new AuthProperties.Migracao(null, null, null, "app\"; drop table x; --")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("papel-app");
+    }
+
+    @Test
+    void claimsExtrasNaoPodemUsarNomesDoModuloNemTiposEstranhos() {
+        JwtService jwt = new JwtService(padrao(), new RelogioMutavel());
+        assertThatThrownBy(() -> jwt.emitirAcesso("ana", 1, java.util.Map.of("cv", 99))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> jwt.emitirAcesso("ana", 1, java.util.Map.of("purpose", "suporte"))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> jwt.emitirAcesso("ana", 1, java.util.Map.of("obj", new Object()))).isInstanceOf(IllegalArgumentException.class);
+        String token = jwt.emitirAcesso("ana", 1, java.util.Map.of("tenant", "t1", "roles", java.util.List.of("ADMIN", "LEITOR")));
+        JwtService.Token validado = jwt.validar(token, JwtService.ACESSO);
+        assertThat(validado.extras()).containsEntry("tenant", "t1").containsEntry("roles", java.util.List.of("ADMIN", "LEITOR"));
+        assertThat(validado.versao()).isEqualTo(1);
     }
 
     @Test
