@@ -13,9 +13,10 @@ Só infraestrutura que é igual nos sistemas e não depende do domínio: assinat
 | `plataforma-parent/` | POM pai dos backends: Java 25, Spring Boot 4.1.x, Error Prone, JaCoCo, Surefire/Failsafe, imagem do Postgres dos testes | `br.com.plataforma:plataforma-parent` |
 | `plataforma-comum/plataforma-comum-seguranca/` | HMAC da integração, TOTP e núcleo do limite de login; sem Spring e sem banco | `br.com.plataforma:plataforma-comum-seguranca` |
 | `plataforma-comum/plataforma-comum-web/` | `ApiError` e `ApiException` (e as exceções 400/401/403/404/409/429), handler global de erros, `RequestIdFilter`, `LimiteCorpoFilter`; autoconfigurado (`PlataformaWebAutoConfiguration`) | `br.com.plataforma:plataforma-comum-web` |
+| `plataforma-comum/plataforma-comum-monitoramento/` | `GET /monitoramento/metrics` em texto Prometheus (requisições, JVM, pool de conexões) com credencial exclusiva (`MonitoramentoFilter`); métricas do domínio entram por `MetricasDeDominio`; autoconfigurado | `br.com.plataforma:plataforma-comum-monitoramento` |
 | `pom.xml` (raiz) | Só agrega os módulos; todos saem com a mesma versão | não é publicado |
 
-Os módulos seguintes (`monitoramento`, `teste`, `auth`, `central`) entram um por vez.
+Os módulos seguintes (`teste`, `auth`, `central`) entram um por vez.
 
 Pacote `br.com.plataforma.comum.seguranca`: `HmacAssinatura` (um lado assina, o outro confere) e `Totp` (RFC 6238). Pacote `br.com.plataforma.comum.seguranca.login`: `LimiteLogin` (limite de tentativas por IP e por conta, antes do BCrypt), `ContadorJanelas` (a interface do contador), `ContadorEmMemoria` e `LimiteLoginException` (`RuntimeException` com os segundos de espera e o código `LOGIN_LIMITADO`). Cada sistema entrega o contador, o `Clock` e o sal pelo construtor e mapeia a exceção para HTTP 429.
 
@@ -27,6 +28,10 @@ Pacote `br.com.plataforma.comum.web`. Basta ter a dependência: a autoconfigura�
 - O 500 devolve mensagem genérica com o requestId e vai para o log **sem dados** (classes da cadeia de causas e até 5 pontos do código do sistema; nunca mensagem nem pilha completa, por causa da LGPD).
 - Para saber dos erros (ex.: relatório de erros do Servirea), declare um bean `OuvinteDeErros`.
 - Fica de fora (é do domínio de cada sistema): `Formatos` (CPF, CEP...), exceções com regra própria (ex.: `ValidacaoException` 422 do consultoria-app) e o `Retry-After`, que os controllers de login e MFA põem.
+
+### Módulo monitoramento (1.2.0)
+
+Pacote `br.com.plataforma.comum.monitoramento`. A autoconfiguração publica o `MetricasController` (`GET /monitoramento/metrics`, `@PreAuthorize("hasRole('MONITORAMENTO')")`, `Cache-Control: no-store`). O sistema faz duas coisas: (1) na cadeia de segurança, `addFilterBefore(new MonitoramentoFilter(token), JwtAuthenticationFilter.class)` com `monitoramento.token` (env `MONITORAMENTO_TOKEN`, 32 a 128 caracteres `[A-Za-z0-9_-]`; sem token a coleta fica fechada com 401) e `@EnableMethodSecurity`; (2) se tiver métricas próprias, um bean `MetricasDeDominio` que escreve em `SaidaPrometheus` (só agregados; se lançar exceção o grupo é omitido). Métricas comuns: `ecossistema_http_servidor_duracao_seconds`, `ecossistema_http_cliente_duracao_seconds` (por método e classe de status), JVM, processo e Hikari. Fica nos sistemas: o bloco de domínio (Central: instâncias por nível; Servirea: fila de envios), o log de requisição lenta e o `logback-spring.xml` do Servirea.
 
 ## Como usar num sistema
 
