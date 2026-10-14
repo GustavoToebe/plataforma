@@ -9,11 +9,13 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.Ordered;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Liga o request id, o limite de corpo e o handler global de erros em qualquer app servlet que tenha este módulo.
- * Cada bean cede a um bean do app do mesmo tipo (por exemplo, um handler que estende o {@link GlobalExceptionHandler}).
+ * Os filtros cedem a um bean do app com o mesmo nome; o handler cede a qualquer {@link ResponseEntityExceptionHandler} do
+ * app (inclusive o {@code GlobalExceptionHandler} que ele já tem), para a adoção poder ser gradual.
  */
 @AutoConfiguration
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
@@ -40,8 +42,8 @@ public class PlataformaWebAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(GlobalExceptionHandler.class)
-    public GlobalExceptionHandler globalExceptionHandler(ObjectProvider<OuvinteDeErros> ouvintes,
+    @ConditionalOnMissingBean(ResponseEntityExceptionHandler.class)
+    public GlobalExceptionHandler plataformaExceptionHandler(ObjectProvider<OuvinteDeErros> ouvintes,
                                                          PlataformaWebProperties propriedades) {
         return new GlobalExceptionHandler(ouvintes.orderedStream().toList(), propriedades.prefixoCodigoProprio());
     }

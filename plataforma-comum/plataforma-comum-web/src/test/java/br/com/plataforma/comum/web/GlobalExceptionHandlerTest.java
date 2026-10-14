@@ -115,6 +115,15 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void rotaInexistenteVira404ComCodigoNaoEncontrado() throws Exception {
+        mvc.perform(get("/nao/existe"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.codigo").value("NAO_ENCONTRADO"))
+                .andExpect(jsonPath("$.path").value("/nao/existe"));
+    }
+
+    @Test
     void erroInesperadoNaoVazaDadosNemNoCorpoNemNoResumoDoLog() throws Exception {
         mvc.perform(get("/erros/inesperado"))
                 .andExpect(status().isInternalServerError())

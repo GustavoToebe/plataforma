@@ -7,6 +7,7 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
@@ -57,6 +58,15 @@ class PlataformaWebAutoConfigurationTest {
     }
 
     @Test
+    void handlerDoSistemaComOMesmoNomeDeBeanNaoQuebraNemDuplica() {
+        runner.withUserConfiguration(HandlerAntigo.class).run(contexto -> {
+            assertThat(contexto).hasNotFailed();
+            assertThat(contexto).getBeans(ResponseEntityExceptionHandler.class).hasSize(1);
+            assertThat(contexto.getBean("globalExceptionHandler")).isInstanceOf(HandlerAntigo.Antigo.class);
+        });
+    }
+
+    @Test
     void ouvintesDoSistemaChegamAoHandler() {
         runner.withUserConfiguration(OuvinteConfig.class).run(contexto -> {
             GlobalExceptionHandler handler = contexto.getBean(GlobalExceptionHandler.class);
@@ -84,6 +94,19 @@ class PlataformaWebAutoConfigurationTest {
             Subclasse() {
                 super(List.of(), "br.com.");
             }
+        }
+    }
+
+    /** O app que ainda não removeu o handler dele: mesmo nome de bean, classe sem relação com a do módulo. */
+    @Configuration(proxyBeanMethods = false)
+    static class HandlerAntigo {
+
+        @Bean
+        Antigo globalExceptionHandler() {
+            return new Antigo();
+        }
+
+        static class Antigo extends ResponseEntityExceptionHandler {
         }
     }
 
