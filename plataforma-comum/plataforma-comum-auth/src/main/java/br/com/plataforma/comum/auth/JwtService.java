@@ -82,13 +82,39 @@ public final class JwtService {
      * {@code suporte-ttl-max}). O operador e o motivo vão no token para a auditoria do sistema.
      */
     public String emitirSuporte(String sujeito, long versao, String operador, String motivo, Duration ttl) {
+        return emitirSuporte(sujeito, versao, operador, motivo, ttl, Map.of());
+    }
+
+    /** Token de suporte com claims do sistema (a paróquia, o e-mail do operador...); mesmas regras de {@link #emitirAcesso(String, long, Map)}. */
+    public String emitirSuporte(String sujeito, long versao, String operador, String motivo, Duration ttl, Map<String, ?> extras) {
         if (operador == null || operador.isBlank() || motivo == null || motivo.isBlank()) {
             throw new IllegalArgumentException("Sessão de suporte exige operador e motivo.");
         }
         if (ttl.isNegative() || ttl.isZero() || ttl.compareTo(config.suporteTtlMax()) > 0) {
             throw new IllegalArgumentException("Prazo da sessão de suporte fora do limite.");
         }
-        return emitir(SUPORTE, sujeito, versao, ttl, operador, motivo, Map.of());
+        return emitir(SUPORTE, sujeito, versao, ttl, operador, motivo, extras);
+    }
+
+    /**
+     * Token de um propósito do aplicativo ({@code plataforma.auth.jwt.propositos.<nome>}), com a validade configurada. Serve para
+     * passos curtos do fluxo de login, como a escolha da paróquia depois da senha. Um token deste tipo nunca vale como acesso.
+     */
+    public String emitir(String proposito, String sujeito, long versao, Map<String, ?> extras) {
+        Duration ttl = config.propositos().get(proposito);
+        if (ttl == null) {
+            throw new IllegalArgumentException("Propósito não configurado em plataforma.auth.jwt.propositos: " + proposito);
+        }
+        return emitir(proposito, sujeito, versao, ttl, null, null, extras);
+    }
+
+    /** Confere os claims do sistema sem emitir nada: nomes reservados e tipos aceitos (a mesma regra de {@code emitirAcesso}). */
+    void conferirExtras(Map<String, ?> extras) {
+        extras.forEach(JwtService::validarExtra);
+    }
+
+    boolean propositoDoAplicativo(String proposito) {
+        return config.propositos().containsKey(proposito);
     }
 
     public long expiraEmSegundos() {

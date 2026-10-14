@@ -2,6 +2,7 @@ package br.com.plataforma.comum.auth;
 
 import java.time.Duration;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -33,11 +34,18 @@ public record AuthProperties(
      * @param suporteTtlMax  teto da validade do token de suporte
      * @param emissor        {@code iss} dos tokens, por aplicativo (ex.: {@code central}); exigido com o módulo ligado.
      *                       Um token de outro aplicativo que por engano use o mesmo segredo não vale aqui.
+     * @param propositos     tokens de curta duração que só o aplicativo conhece (ex.: {@code tenant_selection}, o passo entre
+     *                       a senha e a escolha da paróquia), com a validade de cada um. Os nomes {@code access} e
+     *                       {@code suporte} são do módulo. Padrão: nenhum.
      */
     public record Jwt(String secret,
                       @DefaultValue("PT15M") Duration accessTtl,
                       @DefaultValue("PT1H") Duration suporteTtlMax,
-                      String emissor) {
+                      String emissor,
+                      @DefaultValue Map<String, Duration> propositos) {
+        public Jwt {
+            propositos = propositos == null ? Map.of() : Map.copyOf(propositos);
+        }
     }
 
     /** @param ttl validade do refresh token (cada rotação começa um novo prazo) */
@@ -121,6 +129,14 @@ public record AuthProperties(
         if (jwt.accessTtl().compareTo(Duration.ofSeconds(30)) < 0 || jwt.accessTtl().compareTo(Duration.ofHours(1)) > 0) {
             throw new IllegalArgumentException("plataforma.auth.jwt.access-ttl precisa ficar entre 30 segundos e 1 hora.");
         }
+        jwt.propositos().forEach((nome, ttl) -> {
+            if (!nome.matches("[a-z][a-z_]{0,31}") || JwtService.ACESSO.equals(nome) || JwtService.SUPORTE.equals(nome)) {
+                throw new IllegalArgumentException("plataforma.auth.jwt.propositos: nome inválido ou reservado: " + nome);
+            }
+            if (ttl == null || ttl.compareTo(Duration.ofSeconds(30)) < 0 || ttl.compareTo(Duration.ofHours(1)) > 0) {
+                throw new IllegalArgumentException("plataforma.auth.jwt.propositos." + nome + " precisa ficar entre 30 segundos e 1 hora.");
+            }
+        });
         if (jwt.suporteTtlMax().compareTo(Duration.ofHours(8)) > 0 || jwt.suporteTtlMax().isNegative() || jwt.suporteTtlMax().isZero()) {
             throw new IllegalArgumentException("plataforma.auth.jwt.suporte-ttl-max precisa ficar entre 1 segundo e 8 horas.");
         }

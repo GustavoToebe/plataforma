@@ -4,8 +4,10 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -37,8 +39,14 @@ public class RefreshTokens {
     private record Linha(String sujeito, Instant expiraEm, boolean revogado, long versao) {
     }
 
-    /** @param versao versão das credenciais do sujeito no momento da rotação */
-    public record Rotacao(String sujeito, long versao, String refreshToken) {
+    /**
+     * @param versao versão das credenciais do sujeito no momento da rotação
+     * @param extras claims que o sistema pediu para o novo access (vazio quando a rotação não pediu nenhum)
+     */
+    public record Rotacao(String sujeito, long versao, String refreshToken, Map<String, ?> extras) {
+        public Rotacao(String sujeito, long versao, String refreshToken) {
+            this(sujeito, versao, refreshToken, Map.of());
+        }
     }
 
     private record Decisao(Estado estado, Rotacao rotacao) {
@@ -77,10 +85,18 @@ public class RefreshTokens {
      * reuso de token revogado (que revoga todas as sessões do sujeito antes de responder).
      */
     public Rotacao rotacionar(String bruto, String ip) {
+        return rotacionar(bruto, ip, sujeito -> Map.of());
+    }
+
+    /**
+     * Rotação em que o sistema calcula os claims do novo access dentro da transação, depois de todas as conferências e antes de
+     * gravar o token novo. Uma exceção da função desfaz a rotação: o token antigo continua válido e não conta como reuso.
+     */
+    public Rotacao rotacionar(String bruto, String ip, Function<String, Map<String, ?>> extrasDoSujeito) {
         if (bruto == null || bruto.isBlank()) {
             throw new UnauthorizedException(INVALIDA);
         }
-        Decisao decisao = transacao.execute(status -> decidir(TokenOpaco.hash(bruto), ip));
+        Decisao decisao = transacao.execute(status -> decidir(TokenOpaco.hash(bruto), ip, extrasDoSujeito));
         return switch (decisao.estado()) {
             case OK -> decisao.rotacao();
             case EXPIRADO -> throw new UnauthorizedException(EXPIRADA);
@@ -108,7 +124,7 @@ public class RefreshTokens {
         });
     }
 
-    private Decisao decidir(String hash, String ip) {
+    private Decisao decidir(String hash, String ip, Function<String, Map<String, ?>> extrasDoSujeito) {
         Optional<String> dono = jdbc.query("select sujeito from plataforma.refresh_token where token_hash = ?",
                 (rs, n) -> rs.getString(1), hash).stream().findFirst();
         if (dono.isEmpty()) {
@@ -142,6 +158,7 @@ public class RefreshTokens {
             jdbc.update("delete from plataforma.refresh_token where sujeito = ? and versao <> ?", sujeito, versao.get());
             return new Decisao(Estado.INATIVO, null);
         }
+        Map<String, ?> extras = extrasDoSujeito.apply(sujeito);
         String novo = TokenOpaco.gerar();
         java.util.UUID novoId = jdbc.queryForObject("""
                 insert into plataforma.refresh_token (sujeito, token_hash, expira_em, ip, versao)
@@ -149,7 +166,7 @@ public class RefreshTokens {
                 sujeito, TokenOpaco.hash(novo), Timestamp.from(agora.plus(propriedades.refresh().ttl())), ip(ip), versao.get());
         jdbc.update("update plataforma.refresh_token set revogado_em = ?, substituido_por = ? where token_hash = ?",
                 Timestamp.from(agora), novoId, hash);
-        return new Decisao(Estado.OK, new Rotacao(sujeito, versao.get(), novo));
+        return new Decisao(Estado.OK, new Rotacao(sujeito, versao.get(), novo, extras == null ? Map.of() : extras));
     }
 
     private String inserir(String sujeito, long versao, String ip) {
