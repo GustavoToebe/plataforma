@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      Reator da plataforma: só agrega os módulos e publica todos juntos, com a mesma versão, pela tag vX.Y.Z.
+      Não é herdado por ninguém: quem herda é o plataforma-parent.
+    -->
+    <groupId>br.com.plataforma</groupId>
+    <artifactId>plataforma</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>plataforma</name>
+    <description>Parent Maven e biblioteca comum dos backends da plataforma: só infraestrutura, nunca regra de negócio.</description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- O reator em si não vai para o GitHub Packages; os módulos vão. -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
+    <modules>
+        <module>plataforma-parent</module>
+        <module>plataforma-comum</module>
+    </modules>
+</project>
