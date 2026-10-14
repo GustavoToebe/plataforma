@@ -1,0 +1,100 @@
+{
+  "name": "@plataforma/web",
+  "version": "0.1.0",
+  "description": "TypeScript puro da plataforma para os fronts: destino da API, formatos BR, erro da API, lÃ³gica do cliente de autenticaÃ§Ã£o e tokens do design.",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      },
+      "default": "./dist/cjs/index.js"
+    },
+    "./destino-api": {
+      "import": {
+        "types": "./dist/esm/destino-api.d.ts",
+        "default": "./dist/esm/destino-api.js"
+      },
+      "require": {
+        "types": "./dist/cjs/destino-api.d.ts",
+        "default": "./dist/cjs/destino-api.js"
+      },
+      "default": "./dist/cjs/destino-api.js"
+    },
+    "./formatos": {
+      "import": {
+        "types": "./dist/esm/formatos.d.ts",
+        "default": "./dist/esm/formatos.js"
+      },
+      "require": {
+        "types": "./dist/cjs/formatos.d.ts",
+        "default": "./dist/cjs/formatos.js"
+      },
+      "default": "./dist/cjs/formatos.js"
+    },
+    "./erros": {
+      "import": {
+        "types": "./dist/esm/erros.d.ts",
+        "default": "./dist/esm/erros.js"
+      },
+      "require": {
+        "types": "./dist/cjs/erros.d.ts",
+        "default": "./dist/cjs/erros.js"
+      },
+      "default": "./dist/cjs/erros.js"
+    },
+    "./autenticacao": {
+      "import": {
+        "types": "./dist/esm/autenticacao.d.ts",
+        "default": "./dist/esm/autenticacao.js"
+      },
+      "require": {
+        "types": "./dist/cjs/autenticacao.d.ts",
+        "default": "./dist/cjs/autenticacao.js"
+      },
+      "default": "./dist/cjs/autenticacao.js"
+    },
+    "./tokens": {
+      "import": {
+        "types": "./dist/esm/tokens.d.ts",
+        "default": "./dist/esm/tokens.js"
+      },
+      "require": {
+        "types": "./dist/cjs/tokens.d.ts",
+        "default": "./dist/cjs/tokens.js"
+      },
+      "default": "./dist/cjs/tokens.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:cobertura": "vitest run --coverage",
+    "verificar:dist": "node scripts/verificar-dist.mjs",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "5.0.4",
+    "typescript": "6.0.3",
+    "vitest": "5.0.4"
+  }
+}
