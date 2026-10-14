@@ -4,13 +4,15 @@
 - **`br.com.servirea:servirea-comum` 0.1.0 e 0.2.0** (nome antigo, Java 21, tags `java-v0.1.0` e `java-v0.2.0`): continuam publicadas e imutáveis. Estavam em uso pela Central e pelo Servirea até a adoção da 1.0.0.
 - **`br.com.plataforma` 1.0.0** (tag `v1.0.0`): `plataforma-parent` e `plataforma-comum-seguranca` (HMAC, TOTP e `seguranca.login`, o mesmo código da 0.2.0 com os pacotes renomeados). Java 25. Duas correções do Error Prone, sem mudar o comportamento: `toUpperCase(Locale.ROOT)` no HMAC e laço por `charAt` no TOTP.
 
+- **`plataforma-comum-web` 1.1.0** (tag `v1.1.0`, PR empilhado sobre o da 1.0.0): erro padrão da API, request id e limite de corpo. Extraído da Central e comparado com Servirea e consultoria-app. Decisões: `ApiException` com `codigo` e `cause` (o Servirea nunca preenchia o código); log do 500 sem dados (o do consultoria-app, por LGPD, no lugar do stack trace de Central e Servirea); lock otimista vira 409 `CONFLITO_EDICAO` (no Servirea era `codigo=null`, na Central caía no 500); gancho `OuvinteDeErros` no lugar do `RelatorioDeErros` do Servirea; `LimiteCorpoFilter` do consultoria-app com limite configurável. Fica nos sistemas: `Formatos`, `ClientIp`, `ZipSeguro`, `PaginaLista`, `Exigir`, `Fuso`, as exceções com regra própria do consultoria-app, a medição de requisição lenta e o atributo `servire.jwtMs` do `RequestIdFilter` do Servirea (um filtro do sistema pode ficar ao lado ou estender o do módulo).
+
 Versão publicada não muda: correção vira versão nova.
 
 ## Uso pelos sistemas
 Central e Servirea adotam o parent e a `plataforma-comum-seguranca` na Fase 4. Em cada um ficam o `ContadorBanco` (implementa `ContadorJanelas`), o bean Spring do limitador (limites vindos da configuração do sistema) e o `@ExceptionHandler` que mapeia `LimiteLoginException` para HTTP 429 com o código `LOGIN_LIMITADO`. O `Retry-After` é posto pelos controllers de login e de MFA.
 
 ## Próximos módulos (um por vez, cada um num pull request empilhado)
-`web` → `monitoramento` → `teste` → `auth` → `central`. Extraídos da Central (a referência mais testada); o `central` compara Servirea e consultoria-app contra `docs/contrato-integracao-v1.md` da Central. Central e Servirea só adotam depois da revisão do Gustavo.
+~~`web`~~ (1.1.0) → `monitoramento` → `teste` → `auth` → `central`. Extraídos da Central (a referência mais testada); o `central` compara Servirea e consultoria-app contra `docs/contrato-integracao-v1.md` da Central. Central e Servirea só adotam depois da revisão do Gustavo.
 
 ## Validação
 `mvn verify` na raiz, com o JDK 25 (9 testes no módulo de segurança). A publicação usa só o `GITHUB_TOKEN` do Actions, pela tag.

@@ -12,11 +12,21 @@ Só infraestrutura que é igual nos sistemas e não depende do domínio: assinat
 |---|---|---|
 | `plataforma-parent/` | POM pai dos backends: Java 25, Spring Boot 4.1.x, Error Prone, JaCoCo, Surefire/Failsafe, imagem do Postgres dos testes | `br.com.plataforma:plataforma-parent` |
 | `plataforma-comum/plataforma-comum-seguranca/` | HMAC da integração, TOTP e núcleo do limite de login; sem Spring e sem banco | `br.com.plataforma:plataforma-comum-seguranca` |
+| `plataforma-comum/plataforma-comum-web/` | `ApiError` e `ApiException` (e as exceções 400/401/403/404/409/429), handler global de erros, `RequestIdFilter`, `LimiteCorpoFilter`; autoconfigurado (`PlataformaWebAutoConfiguration`) | `br.com.plataforma:plataforma-comum-web` |
 | `pom.xml` (raiz) | Só agrega os módulos; todos saem com a mesma versão | não é publicado |
 
-Os módulos seguintes (`web`, `monitoramento`, `teste`, `auth`, `central`) entram um por vez.
+Os módulos seguintes (`monitoramento`, `teste`, `auth`, `central`) entram um por vez.
 
 Pacote `br.com.plataforma.comum.seguranca`: `HmacAssinatura` (um lado assina, o outro confere) e `Totp` (RFC 6238). Pacote `br.com.plataforma.comum.seguranca.login`: `LimiteLogin` (limite de tentativas por IP e por conta, antes do BCrypt), `ContadorJanelas` (a interface do contador), `ContadorEmMemoria` e `LimiteLoginException` (`RuntimeException` com os segundos de espera e o código `LOGIN_LIMITADO`). Cada sistema entrega o contador, o `Clock` e o sal pelo construtor e mapeia a exceção para HTTP 429.
+
+### Módulo web (1.1.0)
+
+Pacote `br.com.plataforma.comum.web`. Basta ter a dependência: a autoconfiguração registra o `RequestIdFilter` (X-Request-Id, MDC `requestId`), o `LimiteCorpoFilter` (1 MiB por padrão, multipart fora) e o `GlobalExceptionHandler`, todos cedendo a um bean do sistema com o mesmo nome/tipo. Propriedades `plataforma.web.*`: `limite-corpo-ativo` (true), `limite-corpo-bytes` (1048576), `prefixo-codigo-proprio` (`br.com.`, usado no log do 500).
+
+- Todo erro sai como `ApiError` (`timestamp, status, error, message, codigo, path, requestId, fieldErrors`), inclusive 404/405/415 do MVC (código `NAO_ENCONTRADO` no 404), 409 `CONFLITO_EDICAO` (lock otimista), 413 `CORPO_EXCEDIDO` e 429 do limite de login. Exceção de negócio: estenda `ApiException` ou use `BadRequestException` (`DADOS_INVALIDOS`), `ConflictException`, `ForbiddenException`, `UnauthorizedException`, `ResourceNotFoundException`, `TooManyRequestsException` (os cinco últimos sem código padrão).
+- O 500 devolve mensagem genérica com o requestId e vai para o log **sem dados** (classes da cadeia de causas e até 5 pontos do código do sistema; nunca mensagem nem pilha completa, por causa da LGPD).
+- Para saber dos erros (ex.: relatório de erros do Servirea), declare um bean `OuvinteDeErros`.
+- Fica de fora (é do domínio de cada sistema): `Formatos` (CPF, CEP...), exceções com regra própria (ex.: `ValidacaoException` 422 do consultoria-app) e o `Retry-After`, que os controllers de login e MFA põem.
 
 ## Como usar num sistema
 
