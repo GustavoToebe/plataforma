@@ -95,12 +95,45 @@ class ConfiguracaoTest {
         assertThatThrownBy(() -> new CentralClient(propriedades("http://central.exemplo.com.br", 4096, Duration.ofSeconds(2)), relogio))
                 .as("http puro só para localhost").isInstanceOf(IllegalStateException.class);
         assertThat(new CentralClient(propriedades("https://central.exemplo.com.br", 4096, Duration.ofSeconds(2)), relogio)).isNotNull();
+        // Sem redeInterna, nem o nome de serviço do compose passa por http.
+        assertThatThrownBy(() -> new CentralClient(propriedades("http://central-api:8081", 4096, Duration.ofSeconds(2)), relogio))
+                .isInstanceOf(IllegalStateException.class);
         CentralProperties segredoCurto = new CentralProperties(true, null, "app", CURTO, "http://localhost:1", "/integracao/", 72,
                 Duration.ofSeconds(1), Duration.ofSeconds(1), 4096, 4096, new CentralProperties.Migracao(null, null, null, null));
         assertThatThrownBy(() -> new CentralClient(segredoCurto, relogio)).isInstanceOf(IllegalStateException.class);
         CentralProperties chaveRuim = new CentralProperties(true, null, "id ruim", SEGREDO, "http://localhost:1", "/integracao/", 72,
                 Duration.ofSeconds(1), Duration.ofSeconds(1), 4096, 4096, new CentralProperties.Migracao(null, null, null, null));
         assertThatThrownBy(() -> new CentralClient(chaveRuim, relogio)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void redeInternaAceitaHttpSoParaNomeDeServico() {
+        Clock relogio = Clock.systemUTC();
+        assertThat(new CentralClient(internas("http://central-api:8081"), relogio)).isNotNull();
+        assertThat(new CentralClient(internas("http://central"), relogio)).isNotNull();
+        for (String url : new String[] {"http://central.exemplo.com.br", "http://10.0.0.5:8081", "http://[fd00::1]:8081",
+                "http://central.internal", "http://central-api.:8081", "http://-central:8081", "ftp://central-api"}) {
+            assertThatThrownBy(() -> new CentralClient(internas(url), relogio)).as(url).isInstanceOf(IllegalStateException.class);
+        }
+    }
+
+    @Test
+    void redeInternaVemDoBindDeConfiguracao() {
+        var origem = new org.springframework.boot.context.properties.source.MapConfigurationPropertySource(java.util.Map.of(
+                "plataforma.central.central-url", "http://central-api:8081", "plataforma.central.rede-interna", "true"));
+        CentralProperties ligada = new org.springframework.boot.context.properties.bind.Binder(origem)
+                .bind("plataforma.central", CentralProperties.class).get();
+        assertThat(ligada.redeInterna()).isTrue();
+        assertThat(ligada.centralUrl()).isEqualTo("http://central-api:8081");
+        var padrao = new org.springframework.boot.context.properties.source.MapConfigurationPropertySource(java.util.Map.of(
+                "plataforma.central.central-url", "https://central.exemplo.com.br"));
+        assertThat(new org.springframework.boot.context.properties.bind.Binder(padrao)
+                .bind("plataforma.central", CentralProperties.class).get().redeInterna()).isFalse();
+    }
+
+    private static CentralProperties internas(String url) {
+        return new CentralProperties(true, null, "app-teste", SEGREDO, url, "/integracao/", 72, Duration.ofSeconds(2), Duration.ofSeconds(2),
+                4096, 1 << 20, new CentralProperties.Migracao(null, null, null, null), true);
     }
 
     /**

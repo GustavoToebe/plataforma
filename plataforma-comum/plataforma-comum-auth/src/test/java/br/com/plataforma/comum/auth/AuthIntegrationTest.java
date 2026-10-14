@@ -489,6 +489,51 @@ class AuthIntegrationTest {
     }
 
     @Test
+    void renovarRecuperacaoTrocaTodosOsCodigosExigeCodigoEEncerraSessoes() {
+        Mfa.Preparacao preparacao = mfa.preparar("ana");
+        Mfa.Recuperacao antigos = mfa.ativar("ana", TotpDeTeste.codigo(preparacao.segredo(), AppDeTeste.RELOGIO.instant()));
+        String usado = antigos.codigos().get(0);
+        // Um dos antigos é gasto no login: depois da renovação nenhum antigo, usado ou não, vale.
+        Autenticador.Sessao sessao = autenticador.entrar("ana@x.com", "segredo-da-ana", usado, "10.0.0.20");
+        assertThat(mfa.status("ana").codigosRestantes()).isEqualTo(9);
+
+        assertThatThrownBy(() -> mfa.renovarRecuperacao("ana", null)).isInstanceOf(MfaException.class)
+                .extracting("codigo").isEqualTo("MFA_NECESSARIO");
+        assertThatThrownBy(() -> mfa.renovarRecuperacao("ana", "000000")).isInstanceOf(MfaException.class)
+                .extracting("codigo").isEqualTo("MFA_CODIGO_INVALIDO");
+        assertThat(mfa.status("ana").codigosRestantes()).isEqualTo(9);
+
+        AppDeTeste.RELOGIO.avancar(Duration.ofSeconds(60));
+        Mfa.Recuperacao novos = mfa.renovarRecuperacao("ana", TotpDeTeste.codigo(preparacao.segredo(), AppDeTeste.RELOGIO.instant()));
+        assertThat(novos.codigos()).hasSize(10).allSatisfy(c -> assertThat(c).matches("[0-9a-f]{32}"))
+                .doesNotContainAnyElementsOf(antigos.codigos());
+        assertThat(novos.toString()).doesNotContain(novos.codigos().get(0));
+        assertThat(mfa.status("ana").codigosRestantes()).isEqualTo(10);
+        assertThat(jdbc.queryForObject("select count(*) from plataforma.mfa_recuperacao where sujeito = 'ana'", Integer.class)).isEqualTo(10);
+        assertThatThrownBy(() -> autenticador.renovar(sessao.refreshToken(), "10.0.0.20")).isInstanceOf(UnauthorizedException.class);
+        assertThatThrownBy(() -> autenticador.entrar("ana@x.com", "segredo-da-ana", antigos.codigos().get(1), "10.0.0.20"))
+                .isInstanceOf(MfaException.class).extracting("codigo").isEqualTo("MFA_CODIGO_INVALIDO");
+        assertThat(autenticador.entrar("ana@x.com", "segredo-da-ana", novos.codigos().get(0), "10.0.0.20").sujeito()).isEqualTo("ana");
+    }
+
+    @Test
+    void renovarRecuperacaoComUmCodigoDeRecuperacaoConsomeOCodigo() {
+        Mfa.Preparacao preparacao = mfa.preparar("ana");
+        Mfa.Recuperacao antigos = mfa.ativar("ana", TotpDeTeste.codigo(preparacao.segredo(), AppDeTeste.RELOGIO.instant()));
+        Mfa.Recuperacao novos = mfa.renovarRecuperacao("ana", antigos.codigos().get(3));
+        assertThat(novos.codigos()).hasSize(10).doesNotContainAnyElementsOf(antigos.codigos());
+    }
+
+    @Test
+    void renovarRecuperacaoSemMfaAtivoEhRecusado() {
+        assertThatThrownBy(() -> mfa.renovarRecuperacao("ana", "123456")).isInstanceOf(MfaException.class)
+                .extracting("codigo").isEqualTo("MFA_INATIVO");
+        mfa.preparar("ana");
+        assertThatThrownBy(() -> mfa.renovarRecuperacao("ana", "123456")).isInstanceOf(MfaException.class)
+                .extracting("codigo").isEqualTo("MFA_INATIVO");
+    }
+
+    @Test
     void segredoDeMfaDeUmSujeitoNaoDecifraParaOutro() {
         mfa.preparar("ana");
         String cifrado = jdbc.queryForObject("select pendente_cifrado from plataforma.mfa where sujeito = 'ana'", String.class);

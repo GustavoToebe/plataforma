@@ -3,6 +3,7 @@ package br.com.plataforma.comum.central;
 import java.time.Duration;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
@@ -17,6 +18,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param centralUrl          URL base da Central (sem barra no fim); vazio = sem cliente de saída
  * @param caminhoBase      prefixo (decodificado) das rotas de integração que o filtro protege
  * @param toleranciaHoras     por quanto tempo sem confirmação da Central o app ainda libera o acesso (contrato, seção 4)
+ * @param redeInterna         aceita {@code http} também quando o host da Central é um nome de serviço da rede interna (um só
+ *                            rótulo, sem ponto, como {@code central-api} no compose); o padrão é só {@code https} (e http em localhost)
  */
 @ConfigurationProperties(prefix = "plataforma.central")
 public record CentralProperties(
@@ -31,7 +34,8 @@ public record CentralProperties(
         @DefaultValue("PT10S") Duration timeoutResposta,
         @DefaultValue("8388608") int limiteRespostaBytes,
         @DefaultValue("1048576") int limiteCorpoBytes,
-        @DefaultValue Migracao migracao
+        @DefaultValue Migracao migracao,
+        @DefaultValue("false") boolean redeInterna
 ) {
 
     /**
@@ -41,6 +45,15 @@ public record CentralProperties(
     public record Migracao(String url, String user, String password, String papelApp) {
     }
 
+    /** Forma de antes da {@code redeInterna}: só {@code https} (e http em localhost). */
+    public CentralProperties(boolean habilitado, String chavesEntrada, String chaveSaidaId, String chaveSaidaSegredo, String centralUrl,
+            String caminhoBase, int toleranciaHoras, Duration timeoutConexao, Duration timeoutResposta, int limiteRespostaBytes,
+            int limiteCorpoBytes, Migracao migracao) {
+        this(habilitado, chavesEntrada, chaveSaidaId, chaveSaidaSegredo, centralUrl, caminhoBase, toleranciaHoras, timeoutConexao,
+                timeoutResposta, limiteRespostaBytes, limiteCorpoBytes, migracao, false);
+    }
+
+    @ConstructorBinding
     public CentralProperties {
         if (toleranciaHoras < 1 || toleranciaHoras > 24 * 30) {
             throw new IllegalArgumentException("plataforma.central.tolerancia-horas precisa ficar entre 1 e 720.");
