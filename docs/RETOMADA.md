@@ -20,8 +20,9 @@
   - `teste`: repositório em português e do Spring Data, `@Controller`, mais formas de JDBC (inclusive cru), lista de exceções por nome completo, caso de falha do `JACKSON_TRES`.
 
 - **1.7.0** (tag `v1.7.0`, PR sobre a `main`; só acréscimos para a Fase 5): `LimiteLoginException.primeiroBloqueio()`; propósitos do aplicativo (`plataforma.auth.jwt.propositos`, `JwtService.emitir`, `Autenticador.autenticarComo`); `Autenticador.verificarCredenciais`, `novaSessao(..., extras)` e `renovar(refresh, ip, extrasDoSujeito)` (a função roda na transação da rotação; exceção desfaz); `emitirSuporte(..., extras)`; `UsuariosDaAutenticacao.versaoDeSuporte`. Nada que existia mudou de comportamento (o construtor do record `AuthProperties.Jwt` ganhou o componente `propositos`).
+- **1.8.0** (PR sobre a `main`, tag só depois da revisão; só acréscimo): `Mfa.renovarRecuperacao(sujeito, codigo)`, que o botão "Gerar novos códigos" do Servirea usa.
 
-Versão publicada não muda: correção vira versão nova. Os sistemas adotam os módulos a partir da 1.6.0 (a Fase 5 usa a 1.7.0; as 1.1.0–1.5.0 ficam publicadas, sem uso).
+Versão publicada não muda: correção vira versão nova. Os sistemas adotam os módulos a partir da 1.6.0 (a Fase 5 usa a 1.7.0 e, no Servirea, a 1.8.0; as 1.1.0–1.5.0 ficam publicadas, sem uso).
 
 ## Uso pelos sistemas
 Central e Servirea adotam o parent e a `plataforma-comum-seguranca` na Fase 4. Em cada um ficam o `ContadorBanco` (implementa `ContadorJanelas`), o bean Spring do limitador (limites vindos da configuração do sistema) e o `@ExceptionHandler` que mapeia `LimiteLoginException` para HTTP 429 com o código `LOGIN_LIMITADO`. O `Retry-After` é posto pelos controllers de login e de MFA.

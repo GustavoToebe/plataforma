@@ -18,7 +18,7 @@ import br.com.plataforma.comum.seguranca.Totp;
 /**
  * Segundo fator (TOTP) e códigos de recuperação no schema {@code plataforma}, por sujeito. A senha atual e a auditoria ficam com
  * o sistema, que chama estes métodos depois de conferir a senha. Cada código TOTP só vale uma vez ({@code ultimo_passo} é
- * atualizado de forma atômica) e cada código de recuperação também. Ativar e desativar encerram todas as sessões do sujeito.
+ * atualizado de forma atômica) e cada código de recuperação também. Ativar, desativar e renovar os códigos de recuperação encerram todas as sessões do sujeito.
  */
 public class Mfa {
 
@@ -114,18 +114,41 @@ public class Mfa {
             jdbc.update("""
                     update plataforma.mfa set segredo_cifrado = pendente_cifrado, pendente_cifrado = null, pendente_ate = null,
                     ultimo_passo = ?, ativado_em = ? where sujeito = ?""", passo, Timestamp.from(agora), sujeito);
-            jdbc.update("delete from plataforma.mfa_recuperacao where sujeito = ?", sujeito);
-            List<String> codigos = new ArrayList<>();
-            for (int i = 0; i < CODIGOS_DE_RECUPERACAO; i++) {
-                byte[] bytes = new byte[16];
-                aleatorio.nextBytes(bytes);
-                String bruto = HexFormat.of().formatHex(bytes);
-                codigos.add(bruto);
-                jdbc.update("insert into plataforma.mfa_recuperacao (sujeito, codigo_hash) values (?, ?)", sujeito, TokenOpaco.hash(bruto));
-            }
+            Recuperacao recuperacao = gerarRecuperacao(sujeito);
             refresh.encerrarTodas(sujeito);
-            return new Recuperacao(List.copyOf(codigos));
+            return recuperacao;
         });
+    }
+
+    /**
+     * Troca os códigos de recuperação por 10 novos, exigindo um código válido (do aplicativo ou de recuperação, que é consumido) e
+     * encerrando as sessões, como {@link #ativar}. Os antigos, usados ou não, deixam de existir. MFA inativo é
+     * {@code MFA_INATIVO}. Como em {@link #desativar}, o limite de tentativas é da rota do sistema.
+     */
+    public Recuperacao renovarRecuperacao(String sujeito, String codigo) {
+        return transacao.execute(status -> {
+            travar(sujeito);
+            if (!ativo(sujeito)) {
+                throw new MfaException(HttpStatus.CONFLICT, "MFA não está ativo.", "MFA_INATIVO");
+            }
+            verificarLogin(sujeito, codigo);
+            Recuperacao recuperacao = gerarRecuperacao(sujeito);
+            refresh.encerrarTodas(sujeito);
+            return recuperacao;
+        });
+    }
+
+    private Recuperacao gerarRecuperacao(String sujeito) {
+        jdbc.update("delete from plataforma.mfa_recuperacao where sujeito = ?", sujeito);
+        List<String> codigos = new ArrayList<>();
+        for (int i = 0; i < CODIGOS_DE_RECUPERACAO; i++) {
+            byte[] bytes = new byte[16];
+            aleatorio.nextBytes(bytes);
+            String bruto = HexFormat.of().formatHex(bytes);
+            codigos.add(bruto);
+            jdbc.update("insert into plataforma.mfa_recuperacao (sujeito, codigo_hash) values (?, ?)", sujeito, TokenOpaco.hash(bruto));
+        }
+        return new Recuperacao(List.copyOf(codigos));
     }
 
     /**
