@@ -105,6 +105,15 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.codigo").value("CORPO_EXCEDIDO"));
     }
 
+    /** Controller que lê o stream cru (sem conversor): o estouro também é 413 e não chega ao ouvinte como 500. */
+    @Test
+    void leituraCruaQueEstourouOLimiteVira413SemAvisarComo500() throws Exception {
+        mvc.perform(get("/erros/corpo-excedido-cru"))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.codigo").value("CORPO_EXCEDIDO"));
+        assertThat(avisos).noneMatch(a -> a.startsWith("500"));
+    }
+
     @Test
     void errosDoMvcTambemSaemNoFormatoPadrao() throws Exception {
         mvc.perform(post("/erros/conflito"))
@@ -211,6 +220,11 @@ class GlobalExceptionHandlerTest {
             throw new org.springframework.http.converter.HttpMessageNotReadableException(
                     "corpo", new LimiteCorpoFilter.CorpoExcedidoIOException(),
                     new org.springframework.mock.http.MockHttpInputMessage(new byte[0]));
+        }
+
+        @GetMapping("/erros/corpo-excedido-cru")
+        void corpoExcedidoCru() throws java.io.IOException {
+            throw new LimiteCorpoFilter.CorpoExcedidoIOException();
         }
 
         @GetMapping("/erros/inesperado")

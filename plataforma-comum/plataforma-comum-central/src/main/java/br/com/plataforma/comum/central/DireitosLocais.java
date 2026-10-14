@@ -13,6 +13,7 @@ import java.util.Set;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import br.com.plataforma.comum.web.ApiException;
@@ -53,12 +54,15 @@ public class DireitosLocais {
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transacao;
+    private final TransactionTemplate transacaoPorItem;
     private final Clock relogio;
     private final Duration tolerancia;
 
     DireitosLocais(JdbcTemplate jdbc, PlatformTransactionManager transacoes, Clock relogio, Duration tolerancia) {
         this.jdbc = jdbc;
         this.transacao = new TransactionTemplate(transacoes);
+        this.transacaoPorItem = new TransactionTemplate(transacoes);
+        this.transacaoPorItem.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.relogio = relogio;
         this.tolerancia = tolerancia;
     }
@@ -134,6 +138,9 @@ public class DireitosLocais {
      * item ruim não interrompe os seguintes: se interrompesse, a repetição a cada 30 minutos cairia sempre no mesmo item e, às 72 h,
      * todos os que vêm depois dele perderiam o acesso. Instâncias que o app tem e a lista não trouxe ficam como estão (o contrato
      * manda só alertar, nunca bloquear sozinho).
+     *
+     * <p>Cada item roda na sua própria transação ({@code REQUIRES_NEW}): chamado de um job {@code @Transactional}, um item ruim
+     * marcaria a transação de fora para desfazer e o commit perderia todas as confirmações.
      */
     public Sincronizacao sincronizar(List<Direitos> lista) {
         int aplicadas = 0;
@@ -141,7 +148,7 @@ public class DireitosLocais {
         List<String> falhas = new ArrayList<>();
         for (Direitos direitos : lista) {
             try {
-                if (aplicar(direitos, true).aplicado()) {
+                if (transacaoPorItem.execute(status -> aplicar(direitos, true)).aplicado()) {
                     aplicadas++;
                 }
             } catch (ResourceNotFoundException e) {

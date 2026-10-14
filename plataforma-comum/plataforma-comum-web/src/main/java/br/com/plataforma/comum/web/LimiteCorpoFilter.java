@@ -10,14 +10,22 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.filter.OncePerRequestFilter;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 /**
  * Limita o corpo da requisição (padrão 1 MiB, propriedade {@code plataforma.web.limite-corpo-bytes}). O tamanho
- * declarado é conferido antes da leitura; sem {@code Content-Length} (chunked), a leitura que passa do limite falha com
- * {@link CorpoExcedidoIOException}, que o {@link GlobalExceptionHandler} traduz em 413. Upload multipart segue os
- * limites próprios do Tomcat ({@code spring.servlet.multipart}).
+ * declarado é conferido antes da leitura; sem {@code Content-Length} (chunked), a leitura que passa do limite (pelo
+ * stream ou pelo reader) falha com {@link CorpoExcedidoIOException}. Dentro do Spring MVC o {@link GlobalExceptionHandler}
+ * a traduz em 413; quem lê o corpo antes do MVC (um filtro da cadeia de segurança, como o da integração) recebe o 413
+ * deste próprio filtro, desde que a resposta ainda não tenha sido enviada.
+ *
+ * <p>Upload multipart é conferido primeiro e segue só os limites próprios ({@code spring.servlet.multipart}): o
+ * navegador sempre manda {@code Content-Length} no formulário, e um arquivo de 5 MiB não pode cair no limite do JSON.
  */
 public class LimiteCorpoFilter extends OncePerRequestFilter {
 
@@ -34,17 +42,39 @@ public class LimiteCorpoFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        if (request.getContentLengthLong() > limiteBytes) {
-            CorpoExcedidoException erro = new CorpoExcedidoException();
-            RespostaDeErro.escrever(response, request, erro.getStatus(), erro.getMessage(), erro.getCodigo(), jsonMapper);
-            return;
-        }
         String tipo = request.getContentType();
         if (tipo != null && tipo.toLowerCase(Locale.ROOT).startsWith("multipart/")) {
             chain.doFilter(request, response);
             return;
         }
-        chain.doFilter(new CorpoLimitado(request, limiteBytes), response);
+        if (request.getContentLengthLong() > limiteBytes) {
+            recusar(request, response);
+            return;
+        }
+        try {
+            chain.doFilter(new CorpoLimitado(request, limiteBytes), response);
+        } catch (IOException | ServletException | RuntimeException e) {
+            if (!causadoPorCorpoExcedido(e) || response.isCommitted()) {
+                throw e;
+            }
+            response.resetBuffer();
+            recusar(request, response);
+        }
+    }
+
+    /** A leitura passou do limite em algum ponto da cadeia de causas (filtros costumam embrulhar a exceção). */
+    static boolean causadoPorCorpoExcedido(Throwable erro) {
+        for (Throwable t = erro; t != null; t = t.getCause()) {
+            if (t instanceof CorpoExcedidoIOException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void recusar(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        CorpoExcedidoException erro = new CorpoExcedidoException();
+        RespostaDeErro.escrever(response, request, erro.getStatus(), erro.getMessage(), erro.getCodigo(), jsonMapper);
     }
 
     /** Sinaliza a leitura que passou do limite; vira 413 no handler. */
@@ -60,6 +90,7 @@ public class LimiteCorpoFilter extends OncePerRequestFilter {
 
         private final long limiteBytes;
         private ServletInputStream limitado;
+        private BufferedReader leitor;
 
         CorpoLimitado(HttpServletRequest request, long limiteBytes) {
             super(request);
@@ -72,6 +103,17 @@ public class LimiteCorpoFilter extends OncePerRequestFilter {
                 limitado = new Contador(super.getInputStream(), limiteBytes);
             }
             return limitado;
+        }
+
+        /** O reader do contêiner leria o corpo sem passar pelo contador; este lê do stream limitado. */
+        @Override
+        public BufferedReader getReader() throws IOException {
+            if (leitor == null) {
+                String charset = getCharacterEncoding();
+                leitor = new BufferedReader(new InputStreamReader(getInputStream(),
+                        charset != null ? Charset.forName(charset) : StandardCharsets.ISO_8859_1));
+            }
+            return leitor;
         }
     }
 

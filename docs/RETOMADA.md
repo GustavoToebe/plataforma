@@ -13,7 +13,13 @@
 
 - **`plataforma-comum-central` 1.5.0** (tag `v1.5.0`, PR empilhado sobre o do `auth`): filtro HMAC de entrada com nonce (`IntegracaoFiltro`), `CentralClient` assinado, `Idempotencia` e `DireitosLocais`, no schema `plataforma_integracao` com Flyway próprio. Extraído comparando Servirea e consultoria-app com o contrato da Central; onde divergem, vale o contrato. Ver README, seção "Módulo central".
 
-Versão publicada não muda: correção vira versão nova.
+- **1.6.0** (tag `v1.6.0`, PR empilhado sobre o do `central`): correções da revisão dos módulos 1.1.0–1.5.0, todas com teste que falhava antes.
+  - `web`: multipart com `Content-Length` acima de 1 MiB era recusado (quebraria a importação do Servirea); `getReader()` sem limite; estouro lido fora do MVC virava 500.
+  - `auth`: contador de login e revogação por reuso eram desfeitos pela transação do sistema (agora `REQUIRES_NEW`); refresh guarda a versão das credenciais; `iss`/`exp` obrigatórios; `PoliticaCsrf.tratador()` (SPA); `emissor` e `sal` obrigatórios.
+  - `central`: `sincronizar` dentro de `@Transactional` perdia todas as confirmações com um item ruim; replay responde 200 + `Idempotency-Replayed`; `provisionar` confere a chave = contratação; prazo na leitura do corpo da resposta; formato estrito da assinatura.
+  - `teste`: repositório em português e do Spring Data, `@Controller`, mais formas de JDBC (inclusive cru), lista de exceções por nome completo, caso de falha do `JACKSON_TRES`.
+
+Versão publicada não muda: correção vira versão nova. Os sistemas adotam os módulos a partir da 1.6.0 (as 1.1.0–1.5.0 ficam publicadas, sem uso).
 
 ## Uso pelos sistemas
 Central e Servirea adotam o parent e a `plataforma-comum-seguranca` na Fase 4. Em cada um ficam o `ContadorBanco` (implementa `ContadorJanelas`), o bean Spring do limitador (limites vindos da configuração do sistema) e o `@ExceptionHandler` que mapeia `LimiteLoginException` para HTTP 429 com o código `LOGIN_LIMITADO`. O `Retry-After` é posto pelos controllers de login e de MFA.

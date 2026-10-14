@@ -23,6 +23,9 @@ import io.jsonwebtoken.security.Keys;
  * a senha ou o MFA sobe a versão e invalida os tokens já emitidos). Quem valida diz qual propósito aceita; um token de um
  * propósito nunca serve para outro. Este serviço só confere assinatura, propósito e validade: a comparação do {@code cv} com o
  * banco é feita por {@link Autenticador#autenticar}, que é o caminho que os sistemas devem usar.
+ *
+ * <p>Todo token leva {@code iss} (o emissor do aplicativo) e {@code exp}; na validação os dois são obrigatórios. O jjwt
+ * aceitaria para sempre um token sem {@code exp}, e um token de outro aplicativo que use o mesmo segredo não vale aqui.
  */
 public final class JwtService {
 
@@ -38,6 +41,7 @@ public final class JwtService {
     private static final Set<String> RESERVADOS = Set.of("sub", "purpose", "cv", "exp", "iat", "nbf", "iss", "aud", "jti", "op", "motivo");
 
     private final SecretKey chave;
+    private final String emissor;
     private final AuthProperties.Jwt config;
     private final Clock relogio;
 
@@ -54,6 +58,10 @@ public final class JwtService {
             throw new IllegalStateException("plataforma.auth.jwt.secret precisa decodificar para pelo menos 32 bytes.");
         }
         this.chave = Keys.hmacShaKeyFor(bytes);
+        if (config.emissor() == null || config.emissor().isBlank()) {
+            throw new IllegalStateException("plataforma.auth.jwt.emissor é obrigatório.");
+        }
+        this.emissor = config.emissor();
     }
 
     /** Token de acesso comum. */
@@ -96,9 +104,10 @@ public final class JwtService {
             throw new UnauthorizedException(RECUSADO);
         }
         try {
-            Claims claims = Jwts.parser().verifyWith(chave).clock(() -> Date.from(relogio.instant())).build()
+            Claims claims = Jwts.parser().verifyWith(chave).requireIssuer(emissor)
+                    .clock(() -> Date.from(relogio.instant())).build()
                     .parseSignedClaims(token).getPayload();
-            if (!proposito.equals(claims.get(CLAIM_PROPOSITO))) {
+            if (claims.getExpiration() == null || !proposito.equals(claims.get(CLAIM_PROPOSITO))) {
                 throw new UnauthorizedException(RECUSADO);
             }
             Object versao = claims.get(CLAIM_VERSAO);
@@ -126,6 +135,7 @@ public final class JwtService {
         }
         Instant agora = relogio.instant();
         var construtor = Jwts.builder()
+                .issuer(emissor)
                 .subject(sujeito)
                 .claim(CLAIM_PROPOSITO, proposito)
                 .claim(CLAIM_VERSAO, versao)

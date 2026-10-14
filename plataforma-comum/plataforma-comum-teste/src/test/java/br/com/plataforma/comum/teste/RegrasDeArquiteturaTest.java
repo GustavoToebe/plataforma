@@ -29,7 +29,8 @@ class RegrasDeArquiteturaTest {
     @Test
     void controllerSoFalaComService() {
         passaNoCorretoEFalhaNoErrado(RegrasDeArquitetura.CONTROLLER_SO_FALA_COM_SERVICE,
-                "ControllerComRepositorio", "ControllerComEntityManager");
+                "ControllerComRepositorio", "ControllerComEntityManager", "ControllerComRepositorioEmPortugues",
+                "ControllerComSpringData", "ControllerMvcComRepositorio");
     }
 
     @Test
@@ -46,30 +47,41 @@ class RegrasDeArquiteturaTest {
     @Test
     void sqlNativoSoNaLista() {
         passaNoCorretoEFalhaNoErrado(RegrasDeArquitetura.sqlNativoSoEm(Set.of()),
-                "JdbcSolto", "NativoPeloEntityManager", "NativoComDoisArgumentos", "RepositorioNativo", "RepositorioComNativeQuery");
+                "JdbcSolto", "NativoPeloEntityManager", "NativoComDoisArgumentos", "RepositorioNativo", "RepositorioComNativeQuery",
+                "JdbcPelaInterface", "JdbcComNomes", "InsercaoSimples", "ConexaoCrua");
         assertThatThrownBy(() -> RegrasDeArquitetura.sqlNativoSoEm(Set.of()).check(errado))
                 .hasMessageNotContaining("RepositorioJpql");
     }
 
+    private static final String ERRADO = BASE + ".errado.Errado$";
+
     @Test
     void classeNaListaPodeUsarSqlNativo() {
-        var lista = Set.of("JdbcSolto", "NativoPeloEntityManager", "NativoComDoisArgumentos", "RepositorioNativo",
-                "RepositorioComNativeQuery");
+        var lista = Set.of(ERRADO + "JdbcSolto", ERRADO + "NativoPeloEntityManager", ERRADO + "NativoComDoisArgumentos",
+                ERRADO + "RepositorioNativo", ERRADO + "RepositorioComNativeQuery", ERRADO + "JdbcPelaInterface",
+                ERRADO + "JdbcComNomes", ERRADO + "InsercaoSimples", ERRADO + "ConexaoCrua");
 
         assertThatCode(() -> RegrasDeArquitetura.sqlNativoSoEm(lista).check(errado)).doesNotThrowAnyException();
     }
 
+    /** A lista é por nome completo: uma classe de mesmo nome simples em outro pacote não herda a exceção. */
+    @Test
+    void listaPorNomeSimplesNaoLiberaNada() {
+        assertThatThrownBy(() -> RegrasDeArquitetura.sqlNativoSoEm(Set.of("JdbcSolto")).check(errado))
+                .isInstanceOf(AssertionError.class).hasMessageContaining("JdbcSolto");
+    }
+
     @Test
     void listaDeExcecaoQueApodreceFalha() {
-        assertThatCode(() -> RegrasDeArquitetura.exigirQueAsExcecoesExistem(errado, "SQL_NATIVO", Set.of("JdbcSolto")))
+        assertThatCode(() -> RegrasDeArquitetura.exigirQueAsExcecoesExistem(errado, "SQL_NATIVO", Set.of(ERRADO + "JdbcSolto")))
                 .doesNotThrowAnyException();
 
         assertThatThrownBy(() -> RegrasDeArquitetura.exigirQueAsExcecoesExistem(errado, "SQL_NATIVO",
-                Set.of("JdbcSolto", "ClasseApagada")))
+                Set.of(ERRADO + "JdbcSolto", ERRADO + "ClasseApagada", "JdbcSolto")))
                 .isInstanceOf(AssertionError.class)
                 .hasMessageContaining("SQL_NATIVO")
                 .hasMessageContaining("ClasseApagada")
-                .hasMessageNotContaining("JdbcSolto");
+                .hasMessageContaining("[JdbcSolto, " + ERRADO + "ClasseApagada]");
     }
 
     @Test
@@ -80,8 +92,7 @@ class RegrasDeArquiteturaTest {
     }
 
     @Test
-    void jacksonTresAceitaOCodigoDoExemplo() {
-        assertThatCode(() -> RegrasDeArquitetura.JACKSON_TRES.check(correto)).doesNotThrowAnyException();
-        assertThatCode(() -> RegrasDeArquitetura.JACKSON_TRES.check(errado)).doesNotThrowAnyException();
+    void jacksonTresRecusaOPacoteDoJacksonDois() {
+        passaNoCorretoEFalhaNoErrado(RegrasDeArquitetura.JACKSON_TRES, "UsaJacksonDois");
     }
 }

@@ -128,7 +128,11 @@ public class Mfa {
         });
     }
 
-    /** Desliga o MFA exigindo um código válido (do aplicativo ou de recuperação) e encerra as sessões. */
+    /**
+     * Desliga o MFA exigindo um código válido (do aplicativo ou de recuperação) e encerra as sessões. O módulo não limita as
+     * tentativas aqui: a rota do sistema que chama este método passa pelo {@code LimiteLogin} (como o login), senão o código de
+     * 6 dígitos pode ser adivinhado por quem já tem a sessão.
+     */
     public void desativar(String sujeito, String codigo) {
         transacao.executeWithoutResult(status -> {
             travar(sujeito);

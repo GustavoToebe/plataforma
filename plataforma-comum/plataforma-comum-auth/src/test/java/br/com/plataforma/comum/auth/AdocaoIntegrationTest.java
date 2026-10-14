@@ -28,6 +28,8 @@ import br.com.plataforma.comum.teste.PostgresDeTeste;
 @SpringBootTest(classes = {AppDeTeste.class, AdocaoIntegrationTest.BeansDoSistema.class}, properties = {
         "plataforma.auth.habilitado=true",
         "plataforma.auth.jwt.secret=" + AuthIntegrationTest.SEGREDO,
+        "plataforma.auth.jwt.emissor=app-de-teste",
+        "plataforma.auth.login.sal=sal-do-teste",
         "plataforma.auth.migracao.papel-app=app_rt",
         "spring.main.banner-mode=off"
 })
@@ -74,8 +76,8 @@ class AdocaoIntegrationTest {
     @Test
     void papelDeExecucaoUsaOSchemaMasNaoMudaEstrutura() throws Exception {
         try (Connection c = DriverManager.getConnection(POSTGRES.getJdbcUrl(), "app_rt", "app_rt"); Statement s = c.createStatement()) {
-            s.execute("insert into plataforma.refresh_token (sujeito, token_hash, expira_em) values "
-                    + "('x', repeat('a', 64), now() + interval '1 day')");
+            s.execute("insert into plataforma.refresh_token (sujeito, token_hash, expira_em, versao) values "
+                    + "('x', repeat('a', 64), now() + interval '1 day', 1)");
             assertThat(s.executeQuery("select count(*) from plataforma.refresh_token").next()).isTrue();
             s.execute("delete from plataforma.refresh_token where sujeito = 'x'");
             assertThatThrownBy(() -> s.execute("create table plataforma.intruso (id int)")).isInstanceOf(SQLException.class);

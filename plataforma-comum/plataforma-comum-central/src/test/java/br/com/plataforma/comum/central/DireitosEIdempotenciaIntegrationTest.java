@@ -23,6 +23,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import br.com.plataforma.comum.teste.PostgresDeTeste;
@@ -48,6 +50,7 @@ class DireitosEIdempotenciaIntegrationTest {
     @Autowired Idempotencia idempotencia;
     @Autowired DireitosLocais direitos;
     @Autowired JdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager transacoes;
 
     @BeforeEach
     void limpar() {
@@ -72,8 +75,26 @@ class DireitosEIdempotenciaIntegrationTest {
         assertThat(execucoes).hasValue(1);
         assertThat(primeira.repetido()).isFalse();
         assertThat(segunda.repetido()).isTrue();
-        assertThat(segunda.statusHttp()).isEqualTo(201);
+        // Contrato 5.1: a repetição responde 200 + Idempotency-Replayed: true, com a resposta gravada idêntica.
+        assertThat(segunda.statusHttp()).isEqualTo(200);
         assertThat(segunda.resposta()).isEqualTo("{\"id\":\"x\"}");
+        assertThat(segunda.comoResposta().getStatusCode().value()).isEqualTo(200);
+        assertThat(segunda.comoResposta().getHeaders().getFirst(Idempotencia.CABECALHO_REPETIDO)).isEqualTo("true");
+        assertThat(primeira.comoResposta().getStatusCode().value()).isEqualTo(201);
+        assertThat(primeira.comoResposta().getHeaders().containsHeader(Idempotencia.CABECALHO_REPETIDO)).isFalse();
+    }
+
+    /** Contrato 5.1: no provisionamento a chave é sempre o id da contratação; outra chave é recusada antes de qualquer efeito. */
+    @Test
+    void provisionamentoExigeAChaveIgualAoIdDaContratacao() {
+        AtomicInteger execucoes = new AtomicInteger();
+        assertThatThrownBy(() -> idempotencia.provisionar("outra-chave", "contratacao-1", bytes("{}"),
+                () -> { execucoes.incrementAndGet(); return new Idempotencia.Resultado(201, "{}"); }))
+                .isInstanceOf(BadRequestException.class);
+        assertThat(execucoes).hasValue(0);
+        assertThat(idempotencia.provisionar("contratacao-1", "contratacao-1", bytes("{}"),
+                () -> { execucoes.incrementAndGet(); return new Idempotencia.Resultado(201, "{}"); }).statusHttp()).isEqualTo(201);
+        assertThat(execucoes).hasValue(1);
     }
 
     @Test
@@ -250,6 +271,26 @@ class DireitosEIdempotenciaIntegrationTest {
         assertThat(resultado.falhas()).containsExactly("r2", "r4");
         assertThat(direitos.buscar("r3").orElseThrow().direitos().versao()).as("o item depois dos ruins foi aplicado").isEqualTo(2);
         assertThat(direitos.buscar("r2").orElseThrow().direitos().versao()).as("o conflitante não foi tocado").isEqualTo(1);
+    }
+
+    /**
+     * O sistema chama a sincronização de um job {@code @Transactional}: um item desconhecido ou em conflito não pode marcar a
+     * transação de fora para desfazer, senão nenhuma confirmação vale e, em 72 h, todas as instâncias perdem o acesso.
+     */
+    @Test
+    void sincronizacaoDentroDeTransacaoDoSistemaNaoPerdeAsConfirmacoesPorUmItemRuim() {
+        direitos.inicializar(snapshot("t1", 1, "ATIVA", true));
+        direitos.inicializar(snapshot("t2", 1, "ATIVA", true));
+        AppDeTeste.RELOGIO.avancar(Duration.ofHours(70));
+        DireitosLocais.Direitos conflito = new DireitosLocais.Direitos("t2", "contratacao-OUTRA", 9, "ATIVA", true, null, null, "P", "P", "{}", "[]");
+
+        DireitosLocais.Sincronizacao resultado = new TransactionTemplate(transacoes).execute(status -> direitos.sincronizar(List.of(
+                snapshot("desconhecida", 1, "ATIVA", true), conflito, snapshot("t1", 1, "ATIVA", true))));
+
+        assertThat(resultado.desconhecidas()).containsExactly("desconhecida");
+        assertThat(resultado.falhas()).containsExactly("t2");
+        AppDeTeste.RELOGIO.avancar(Duration.ofHours(10));
+        assertThat(direitos.acessoEfetivo("t1")).as("a confirmação da t1 ficou gravada").isTrue();
     }
 
     @Test
