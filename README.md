@@ -14,6 +14,7 @@ Só infraestrutura que é igual nos sistemas e não depende do domínio: assinat
 | `plataforma-comum/plataforma-comum-seguranca/` | HMAC da integração, TOTP e núcleo do limite de login; sem Spring e sem banco | `br.com.plataforma:plataforma-comum-seguranca` |
 | `plataforma-comum/plataforma-comum-web/` | `ApiError` e `ApiException` (e as exceções 400/401/403/404/409/429), handler global de erros, `RequestIdFilter`, `LimiteCorpoFilter`; autoconfigurado (`PlataformaWebAutoConfiguration`) | `br.com.plataforma:plataforma-comum-web` |
 | `plataforma-comum/plataforma-comum-monitoramento/` | `GET /monitoramento/metrics` em texto Prometheus (requisições, JVM, pool de conexões) com credencial exclusiva (`MonitoramentoFilter`); métricas do domínio entram por `MetricasDeDominio`; autoconfigurado | `br.com.plataforma:plataforma-comum-monitoramento` |
+| `plataforma-comum/plataforma-comum-teste/` | Apoio aos testes (escopo `test`): `PostgresDeTeste` (Postgres descartável na imagem do parent) e `RegrasDeArquitetura` (regras ArchUnit comuns) | `br.com.plataforma:plataforma-comum-teste` |
 | `pom.xml` (raiz) | Só agrega os módulos; todos saem com a mesma versão | não é publicado |
 
 Os módulos seguintes (`teste`, `auth`, `central`) entram um por vez.
@@ -32,6 +33,10 @@ Pacote `br.com.plataforma.comum.web`. Basta ter a dependência: a autoconfigura�
 ### Módulo monitoramento (1.2.0)
 
 Pacote `br.com.plataforma.comum.monitoramento`. A autoconfiguração publica o `MetricasController` (`GET /monitoramento/metrics`, `@PreAuthorize("hasRole('MONITORAMENTO')")`, `Cache-Control: no-store`). O sistema faz duas coisas: (1) na cadeia de segurança, `addFilterBefore(new MonitoramentoFilter(token), JwtAuthenticationFilter.class)` com `monitoramento.token` (env `MONITORAMENTO_TOKEN`, 32 a 128 caracteres `[A-Za-z0-9_-]`; sem token a coleta fica fechada com 401) e `@EnableMethodSecurity`; (2) se tiver métricas próprias, um bean `MetricasDeDominio` que escreve em `SaidaPrometheus` (só agregados; se lançar exceção o grupo é omitido). Métricas comuns: `ecossistema_http_servidor_duracao_seconds`, `ecossistema_http_cliente_duracao_seconds` (por método e classe de status), JVM, processo e Hikari. Fica nos sistemas: o bloco de domínio (Central: instâncias por nível; Servirea: fila de envios), o log de requisição lenta e o `logback-spring.xml` do Servirea.
+
+### Módulo teste (1.3.0)
+
+Pacote `br.com.plataforma.comum.teste`, sempre com `<scope>test</scope>`. `PostgresDeTeste.iniciar(banco, usuario, senha)` sobe um Postgres descartável (tipo `org.testcontainers.postgresql.PostgreSQLContainer`, o do Testcontainers 2; o antigo `containers.PostgreSQLContainer` está deprecado) com a imagem da propriedade `plataforma.postgres.imagem` do parent (padrão `postgres:18-alpine` quando o teste roda fora do Maven); guarde o container num campo `static` da classe base dos testes de integração e chame `PostgresDeTeste.registrar(registry, container)` num `@DynamicPropertySource`. `RegrasDeArquitetura` traz as regras do `ArquiteturaTest` que valem para todos: `CONTROLLER_SO_FALA_COM_SERVICE`, `CONTROLLER_NAO_ABRE_TRANSACAO` (Spring e Jakarta), `NADA_DEPENDE_DE_CONTROLLER`, `JACKSON_TRES`, `SEM_INJECAO_POR_CAMPO`, `SEM_JAVA_UTIL_LOGGING`, `SEM_SAIDA_PADRAO` e `sqlNativoSoEm(lista)` (pega `JdbcTemplate`/`JdbcClient`, qualquer `createNative...`, `@Query(nativeQuery = true)` e `@NativeQuery`) com `exigirQueAsExcecoesExistem(...)` para a lista de exceções. Cada sistema chama `regra.check(codigo)` e mantém no seu teste o que é só dele (a Central não é multi-tenant, por exemplo) e a sua lista de SQL nativo. As regras citam as classes do Spring por nome, então o módulo não força dependência no sistema.
 
 ## Como usar num sistema
 

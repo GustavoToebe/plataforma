@@ -6,7 +6,7 @@
     <parent>
         <groupId>br.com.plataforma</groupId>
         <artifactId>plataforma-parent</artifactId>
-        <version>1.2.0</version>
+        <version>1.3.0</version>
         <relativePath>../plataforma-parent/pom.xml</relativePath>
     </parent>
 
@@ -19,6 +19,7 @@
         <module>plataforma-comum-seguranca</module>
         <module>plataforma-comum-web</module>
         <module>plataforma-comum-monitoramento</module>
+        <module>plataforma-comum-teste</module>
     </modules>
 
     <build>
