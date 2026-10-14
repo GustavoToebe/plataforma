@@ -2,9 +2,11 @@ package br.com.plataforma.comum.monitoramento;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.SpringBootConfiguration;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
@@ -55,8 +57,10 @@ class MetricasHttpIntegrationTest {
         assertThat(consultar("/negocio", AUTORIZACAO).statusCode()).isEqualTo(403);
     }
 
-    @SpringBootApplication
+    @SpringBootConfiguration
+    @EnableAutoConfiguration
     @EnableMethodSecurity
+    @Import(Negocio.class)
     static class AppDeTeste {
 
         @Bean
@@ -74,12 +78,13 @@ class MetricasHttpIntegrationTest {
                     .amostra("ecossistema_instancias_por_nivel", "nivel", "OK", 7);
         }
 
-        @RestController
-        static class Negocio {
-            @GetMapping("/negocio")
-            String negocio() {
-                return "ok";
-            }
+    }
+
+    @RestController
+    static class Negocio {
+        @GetMapping("/negocio")
+        String negocio() {
+            return "ok";
         }
     }
 }

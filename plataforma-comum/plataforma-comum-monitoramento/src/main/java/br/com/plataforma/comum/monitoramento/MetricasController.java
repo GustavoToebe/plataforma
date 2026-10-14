@@ -5,8 +5,11 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -52,6 +55,11 @@ public class MetricasController {
     @GetMapping(value = MonitoramentoFilter.CAMINHO, produces = "text/plain; version=0.0.4; charset=utf-8")
     @PreAuthorize("hasRole('" + MonitoramentoFilter.PAPEL + "')")
     public ResponseEntity<String> metricas() {
+        // Defesa em profundidade: a rota é publicada só por ter a dependência. Sem @EnableMethodSecurity o
+        // @PreAuthorize não age, e uma URL codificada (/monitoramento/%6Detrics) escapa do filtro de coleta.
+        if (!coletorAutenticado()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).header("Cache-Control", "no-store").build();
+        }
         SaidaPrometheus saida = new SaidaPrometheus();
         duracoes(saida, "http.server.requests", "ecossistema_http_servidor");
         duracoes(saida, "http.client.requests", "ecossistema_http_cliente");
@@ -67,6 +75,12 @@ public class MetricasController {
             }
         }
         return ResponseEntity.ok().header("Cache-Control", "no-store").body(saida.toString());
+    }
+
+    private static boolean coletorAutenticado() {
+        Authentication autenticacao = SecurityContextHolder.getContext().getAuthentication();
+        return autenticacao != null && autenticacao.getAuthorities().stream()
+                .anyMatch(papel -> ("ROLE_" + MonitoramentoFilter.PAPEL).equals(papel.getAuthority()));
     }
 
     private void gauge(SaidaPrometheus saida, String origem, String nome) {

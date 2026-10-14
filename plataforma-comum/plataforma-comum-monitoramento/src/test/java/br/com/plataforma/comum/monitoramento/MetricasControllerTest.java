@@ -1,7 +1,12 @@
 package br.com.plataforma.comum.monitoramento;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -10,6 +15,31 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class MetricasControllerTest {
+
+    @BeforeEach
+    void coletor() {
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                "coletor", null, List.of(new SimpleGrantedAuthority("ROLE_MONITORAMENTO"))));
+    }
+
+    @AfterEach
+    void limpar() {
+        SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void semOPapelDeColetorRecusaMesmoSemSegurancaDeMetodo() {
+        SecurityContextHolder.clearContext();
+        assertThat(new MetricasController(new SimpleMeterRegistry(), List.of()).metricas().getStatusCode().value())
+                .isEqualTo(403);
+
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                "operador", null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))));
+        var resposta = new MetricasController(new SimpleMeterRegistry(), List.of()).metricas();
+
+        assertThat(resposta.getStatusCode().value()).isEqualTo(403);
+        assertThat(resposta.getBody()).isNull();
+    }
 
     @Test
     void agregaRequisicoesPorMetodoEClasseDeStatusSemRotaNemDadoPessoal() {
