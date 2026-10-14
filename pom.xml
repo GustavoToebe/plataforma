@@ -9,7 +9,7 @@
     -->
     <groupId>br.com.plataforma</groupId>
     <artifactId>plataforma</artifactId>
-    <version>1.4.0</version>
+    <version>1.5.0</version>
     <packaging>pom</packaging>
     <name>plataforma</name>
     <description>Parent Maven e biblioteca comum dos backends da plataforma: só infraestrutura, nunca regra de negócio.</description>
