@@ -7,6 +7,7 @@
 - **`plataforma-comum-web` 1.1.0** (tag `v1.1.0`, PR empilhado sobre o da 1.0.0): erro padrão da API, request id e limite de corpo. Extraído da Central e comparado com Servirea e consultoria-app. Decisões: `ApiException` com `codigo` e `cause` (o Servirea nunca preenchia o código); log do 500 sem dados (o do consultoria-app, por LGPD, no lugar do stack trace de Central e Servirea); lock otimista vira 409 `CONFLITO_EDICAO` (no Servirea era `codigo=null`, na Central caía no 500); gancho `OuvinteDeErros` no lugar do `RelatorioDeErros` do Servirea; `LimiteCorpoFilter` do consultoria-app com limite configurável. Fica nos sistemas: `Formatos`, `ClientIp`, `ZipSeguro`, `PaginaLista`, `Exigir`, `Fuso`, as exceções com regra própria do consultoria-app, a medição de requisição lenta e o atributo `servire.jwtMs` do `RequestIdFilter` do Servirea (um filtro do sistema pode ficar ao lado ou estender o do módulo).
 
 - **`plataforma-comum-monitoramento` 1.2.0** (tag `v1.2.0`, PR empilhado sobre o do `web`): `MonitoramentoFilter` (idêntico em Central e Servirea) e `MetricasController`, o mesmo texto Prometheus dos dois com os nomes `ecossistema_*` de hoje. O bloco de domínio de cada sistema vira um bean `MetricasDeDominio`. Mudança pequena na saída: valor inteiro sai sem `.0` (`5` em vez de `5.0`), que o Prometheus aceita igual. consultoria-app ainda não tem monitoramento (só `actuator/health`): adotará o módulo.
+- **`plataforma-comum-teste` 1.3.0** (tag `v1.3.0`, PR empilhado sobre o do `monitoramento`): `PostgresDeTeste` (a lógica do `AbstractIntegrationTest` da Central, com a imagem vinda do parent) e `RegrasDeArquitetura` (as regras genéricas do `ArquiteturaTest` da Central como `ArchRule` reutilizáveis, citando o Spring por nome). Ficam nos sistemas: a base de integração (Flyway, `@SpringBootTest`, limpeza de tabelas), a lista de SQL nativo e as regras de domínio. Servirea e consultoria-app têm `ArquiteturaTest` próprio; a adoção troca as regras repetidas pelas do módulo.
 
 Versão publicada não muda: correção vira versão nova.
 
@@ -14,7 +15,7 @@ Versão publicada não muda: correção vira versão nova.
 Central e Servirea adotam o parent e a `plataforma-comum-seguranca` na Fase 4. Em cada um ficam o `ContadorBanco` (implementa `ContadorJanelas`), o bean Spring do limitador (limites vindos da configuração do sistema) e o `@ExceptionHandler` que mapeia `LimiteLoginException` para HTTP 429 com o código `LOGIN_LIMITADO`. O `Retry-After` é posto pelos controllers de login e de MFA.
 
 ## Próximos módulos (um por vez, cada um num pull request empilhado)
-~~`web`~~ (1.1.0) → ~~`monitoramento`~~ (1.2.0) → `teste` → `auth` → `central`. Extraídos da Central (a referência mais testada); o `central` compara Servirea e consultoria-app contra `docs/contrato-integracao-v1.md` da Central. Central e Servirea só adotam depois da revisão do Gustavo.
+~~`web`~~ (1.1.0) → ~~`monitoramento`~~ (1.2.0) → ~~`teste`~~ (1.3.0) → `auth` → `central`. Extraídos da Central (a referência mais testada); o `central` compara Servirea e consultoria-app contra `docs/contrato-integracao-v1.md` da Central. Central e Servirea só adotam depois da revisão do Gustavo.
 
 ## Validação
 `mvn verify` na raiz, com o JDK 25 (9 testes no módulo de segurança). A publicação usa só o `GITHUB_TOKEN` do Actions, pela tag.
