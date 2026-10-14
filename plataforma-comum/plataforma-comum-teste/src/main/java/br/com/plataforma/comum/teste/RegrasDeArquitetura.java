@@ -39,8 +39,10 @@ import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_
 public final class RegrasDeArquitetura {
 
     private static final String REST_CONTROLLER = "org.springframework.web.bind.annotation.RestController";
-    private static final String TRANSACTIONAL = "org.springframework.transaction.annotation.Transactional";
+    private static final Set<String> TRANSACTIONAL = Set.of("org.springframework.transaction.annotation.Transactional",
+            "jakarta.transaction.Transactional");
     private static final String QUERY = "org.springframework.data.jpa.repository.Query";
+    private static final String NATIVE_QUERY = "org.springframework.data.jpa.repository.NativeQuery";
 
     private RegrasDeArquitetura() { }
 
@@ -56,11 +58,13 @@ public final class RegrasDeArquitetura {
 
     /** Controller não abre transação, nem na classe nem em método. */
     public static final ArchRule CONTROLLER_NAO_ABRE_TRANSACAO = noClasses().that().areAnnotatedWith(REST_CONTROLLER)
-            .should().beAnnotatedWith(TRANSACTIONAL)
-            .orShould(new ArchCondition<JavaClass>("ter método @Transactional") {
+            .should(new ArchCondition<JavaClass>("ter @Transactional na classe ou em método") {
                 @Override
                 public void check(JavaClass classe, ConditionEvents eventos) {
-                    classe.getMethods().stream().filter(m -> m.isAnnotatedWith(TRANSACTIONAL))
+                    if (TRANSACTIONAL.stream().anyMatch(classe::isAnnotatedWith)) {
+                        eventos.add(SimpleConditionEvent.satisfied(classe, classe.getName() + " é @Transactional"));
+                    }
+                    classe.getMethods().stream().filter(m -> TRANSACTIONAL.stream().anyMatch(m::isAnnotatedWith))
                             .forEach(m -> eventos.add(SimpleConditionEvent.satisfied(m, m.getFullName() + " é @Transactional")));
                 }
             })
@@ -96,18 +100,30 @@ public final class RegrasDeArquitetura {
                 .orShould().dependOnClassesThat().haveFullyQualifiedName("org.springframework.jdbc.core.simple.JdbcClient")
                 .orShould().dependOnClassesThat()
                 .haveFullyQualifiedName("org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate")
-                .orShould().callMethod("jakarta.persistence.EntityManager", "createNativeQuery", "java.lang.String")
-                .orShould().callMethod("jakarta.persistence.EntityManager", "createNativeQuery", "java.lang.String", "java.lang.Class")
+                .orShould(chamaConsultaNativa())
                 .orShould(declaraQueryNativa())
                 .because("SQL nativo só onde a lista de exceções permite, cada uma com o porquê");
     }
 
+    /** Qualquer chamada {@code createNative...} ({@code createNativeQuery} em todas as sobrecargas, e as do Hibernate). */
+    private static ArchCondition<JavaClass> chamaConsultaNativa() {
+        return new ArchCondition<>("chamar createNative...") {
+            @Override
+            public void check(JavaClass classe, ConditionEvents eventos) {
+                classe.getMethodCallsFromSelf().stream()
+                        .filter(chamada -> chamada.getName().startsWith("createNative"))
+                        .forEach(chamada -> eventos.add(SimpleConditionEvent.satisfied(chamada, chamada.getDescription())));
+            }
+        };
+    }
+
+    /** {@code @Query(nativeQuery = true)} ou {@code @NativeQuery}, em qualquer método. */
     private static ArchCondition<JavaClass> declaraQueryNativa() {
-        return new ArchCondition<>("declarar @Query(nativeQuery = true)") {
+        return new ArchCondition<>("declarar @Query(nativeQuery = true) ou @NativeQuery") {
             @Override
             public void check(JavaClass classe, ConditionEvents eventos) {
                 classe.getMethods().stream()
-                        .filter(m -> m.tryGetAnnotationOfType(QUERY)
+                        .filter(m -> m.isAnnotatedWith(NATIVE_QUERY) || m.tryGetAnnotationOfType(QUERY)
                                 .flatMap(a -> a.tryGetExplicitlyDeclaredProperty("nativeQuery"))
                                 .filter(Boolean.TRUE::equals).isPresent())
                         .forEach(m -> eventos.add(SimpleConditionEvent.satisfied(m, m.getFullName() + " usa SQL nativo")));

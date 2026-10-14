@@ -2,6 +2,7 @@ package br.com.plataforma.comum.teste.exemplo.errado;
 
 import jakarta.persistence.EntityManager;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.jpa.repository.NativeQuery;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -76,6 +77,23 @@ public final class Errado {
         public void rodar(EntityManager em) {
             em.createNativeQuery("select 1");
         }
+    }
+
+    public static class NativoComDoisArgumentos {
+        public void rodar(EntityManager em) {
+            em.createNativeQuery("select 1", "mapeamento");
+        }
+    }
+
+    public interface RepositorioComNativeQuery {
+        @NativeQuery("select 1")
+        int um();
+    }
+
+    @RestController
+    public static class ControllerComTransacaoDoJakarta {
+        @jakarta.transaction.Transactional
+        public void gravar() { }
     }
 
     public interface RepositorioNativo {

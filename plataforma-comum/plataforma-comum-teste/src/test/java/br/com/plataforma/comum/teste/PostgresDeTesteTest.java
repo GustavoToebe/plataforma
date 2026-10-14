@@ -3,7 +3,7 @@ package br.com.plataforma.comum.teste;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.sql.DriverManager;
 import java.util.HashMap;
@@ -45,7 +45,7 @@ class PostgresDeTesteTest {
     @Test
     void sobeUmPostgresNaMajorDoParentERegistraOsDadosDeConexao() throws Exception {
         String imagem = PostgresDeTeste.imagem();
-        PostgreSQLContainer<?> container = PostgresDeTeste.iniciar("app_test", "app", "senha_de_teste");
+        PostgreSQLContainer container = PostgresDeTeste.iniciar("app_test", "app", "senha_de_teste");
 
         Map<String, Supplier<Object>> propriedades = new HashMap<>();
         PostgresDeTeste.registrar(propriedades::put, container);

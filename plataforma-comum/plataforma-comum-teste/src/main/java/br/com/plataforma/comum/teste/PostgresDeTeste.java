@@ -1,7 +1,7 @@
 package br.com.plataforma.comum.teste;
 
 import org.springframework.test.context.DynamicPropertyRegistry;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Postgres descartável dos testes de integração, com a imagem escolhida pelo {@code plataforma-parent} (propriedade de
@@ -10,7 +10,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * {@link #registrar}.
  *
  * <pre>{@code
- * static final PostgreSQLContainer<?> POSTGRES = PostgresDeTeste.iniciar("central_test", "central_test", "central_test");
+ * static final PostgreSQLContainer POSTGRES = PostgresDeTeste.iniciar("central_test", "central_test", "central_test");
  *
  * @DynamicPropertySource
  * static void banco(DynamicPropertyRegistry registry) { PostgresDeTeste.registrar(registry, POSTGRES); }
@@ -33,8 +33,8 @@ public final class PostgresDeTeste {
     }
 
     /** Cria e inicia o container; ele é encerrado pelo Ryuk do Testcontainers ao fim da JVM. */
-    public static PostgreSQLContainer<?> iniciar(String banco, String usuario, String senha) {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(imagem())
+    public static PostgreSQLContainer iniciar(String banco, String usuario, String senha) {
+        PostgreSQLContainer container = new PostgreSQLContainer(imagem())
                 .withDatabaseName(banco)
                 .withUsername(usuario)
                 .withPassword(senha);
@@ -43,7 +43,7 @@ public final class PostgresDeTeste {
     }
 
     /** Aponta o {@code spring.datasource} para o container. */
-    public static void registrar(DynamicPropertyRegistry registry, PostgreSQLContainer<?> container) {
+    public static void registrar(DynamicPropertyRegistry registry, PostgreSQLContainer container) {
         registry.add("spring.datasource.url", container::getJdbcUrl);
         registry.add("spring.datasource.username", container::getUsername);
         registry.add("spring.datasource.password", container::getPassword);

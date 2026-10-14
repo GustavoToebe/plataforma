@@ -35,7 +35,7 @@ class RegrasDeArquiteturaTest {
     @Test
     void controllerNaoAbreTransacaoNemNaClasseNemNoMetodo() {
         passaNoCorretoEFalhaNoErrado(RegrasDeArquitetura.CONTROLLER_NAO_ABRE_TRANSACAO,
-                "ControllerTransacionalNaClasse", "ControllerTransacionalNoMetodo");
+                "ControllerTransacionalNaClasse", "ControllerTransacionalNoMetodo", "ControllerComTransacaoDoJakarta");
     }
 
     @Test
@@ -46,14 +46,15 @@ class RegrasDeArquiteturaTest {
     @Test
     void sqlNativoSoNaLista() {
         passaNoCorretoEFalhaNoErrado(RegrasDeArquitetura.sqlNativoSoEm(Set.of()),
-                "JdbcSolto", "NativoPeloEntityManager", "RepositorioNativo");
+                "JdbcSolto", "NativoPeloEntityManager", "NativoComDoisArgumentos", "RepositorioNativo", "RepositorioComNativeQuery");
         assertThatThrownBy(() -> RegrasDeArquitetura.sqlNativoSoEm(Set.of()).check(errado))
                 .hasMessageNotContaining("RepositorioJpql");
     }
 
     @Test
     void classeNaListaPodeUsarSqlNativo() {
-        var lista = Set.of("JdbcSolto", "NativoPeloEntityManager", "RepositorioNativo");
+        var lista = Set.of("JdbcSolto", "NativoPeloEntityManager", "NativoComDoisArgumentos", "RepositorioNativo",
+                "RepositorioComNativeQuery");
 
         assertThatCode(() -> RegrasDeArquitetura.sqlNativoSoEm(lista).check(errado)).doesNotThrowAnyException();
     }
