@@ -9,13 +9,15 @@
 - **`plataforma-comum-monitoramento` 1.2.0** (tag `v1.2.0`, PR empilhado sobre o do `web`): `MonitoramentoFilter` (idêntico em Central e Servirea) e `MetricasController`, o mesmo texto Prometheus dos dois com os nomes `ecossistema_*` de hoje. O bloco de domínio de cada sistema vira um bean `MetricasDeDominio`. Mudança pequena na saída: valor inteiro sai sem `.0` (`5` em vez de `5.0`), que o Prometheus aceita igual. consultoria-app ainda não tem monitoramento (só `actuator/health`): adotará o módulo.
 - **`plataforma-comum-teste` 1.3.0** (tag `v1.3.0`, PR empilhado sobre o do `monitoramento`): `PostgresDeTeste` (a lógica do `AbstractIntegrationTest` da Central, com a imagem vinda do parent) e `RegrasDeArquitetura` (as regras genéricas do `ArquiteturaTest` da Central como `ArchRule` reutilizáveis, citando o Spring por nome). Ficam nos sistemas: a base de integração (Flyway, `@SpringBootTest`, limpeza de tabelas), a lista de SQL nativo e as regras de domínio. Servirea e consultoria-app têm `ArquiteturaTest` próprio; a adoção troca as regras repetidas pelas do módulo.
 
+- **`plataforma-comum-auth` 1.4.0** (tag `v1.4.0`, PR empilhado sobre o do `teste`): `Autenticador`, `JwtService` (access de 15 min com `cv`, propósitos `access` e `suporte`), `RefreshTokens` (opaco, rotação, reuso revoga tudo com a revogação confirmada antes do 401), `CookieDeRefresh`, `PoliticaCsrf`, `Mfa` (TOTP cifrado + recuperação) e o limite de login no banco, tudo no schema `plataforma` com Flyway próprio. Extraído de Central e Servirea (o consultoria-app não tem MFA nem sessão de suporte; o limite dele tem regras extras que ficam no app). Ver README, seção "Módulo auth".
+
 Versão publicada não muda: correção vira versão nova.
 
 ## Uso pelos sistemas
 Central e Servirea adotam o parent e a `plataforma-comum-seguranca` na Fase 4. Em cada um ficam o `ContadorBanco` (implementa `ContadorJanelas`), o bean Spring do limitador (limites vindos da configuração do sistema) e o `@ExceptionHandler` que mapeia `LimiteLoginException` para HTTP 429 com o código `LOGIN_LIMITADO`. O `Retry-After` é posto pelos controllers de login e de MFA.
 
 ## Próximos módulos (um por vez, cada um num pull request empilhado)
-~~`web`~~ (1.1.0) → ~~`monitoramento`~~ (1.2.0) → ~~`teste`~~ (1.3.0) → `auth` → `central`. Extraídos da Central (a referência mais testada); o `central` compara Servirea e consultoria-app contra `docs/contrato-integracao-v1.md` da Central. Central e Servirea só adotam depois da revisão do Gustavo.
+~~`web`~~ (1.1.0) → ~~`monitoramento`~~ (1.2.0) → ~~`teste`~~ (1.3.0) → ~~`auth`~~ (1.4.0) → `central`. Extraídos da Central (a referência mais testada); o `central` compara Servirea e consultoria-app contra `docs/contrato-integracao-v1.md` da Central. Central e Servirea só adotam depois da revisão do Gustavo.
 
 ## Validação
 `mvn verify` na raiz, com o JDK 25 (9 testes no módulo de segurança). A publicação usa só o `GITHUB_TOKEN` do Actions, pela tag.
