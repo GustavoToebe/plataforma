@@ -1,0 +1,71 @@
+name: Web
+
+# Testa a pasta web/ (@plataforma/web) em todo pull request e em push na main. Quando se cria uma tag `web-vX.Y.Z`
+# (a versão do web/package.json precisa ser igual), publica o .tgz numa Release do GitHub: sem registro de pacotes,
+# então quem instala não precisa de token. A tag `web-v*` não dispara o java.yml (que só olha `v*`).
+on:
+  push:
+    branches: [main]
+    tags: ['web-v*']
+  pull_request:
+    paths: ['web/**', '.github/workflows/web.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  testar:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Testes com cobertura
+        run: npm run test:cobertura
+      - run: npm run build
+      - name: Entradas do exports (import e require)
+        run: npm run verificar:dist
+      - run: npm pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pacote-web
+          path: web/plataforma-web-*.tgz
+          if-no-files-found: error
+
+  publicar:
+    # Só em tag, e só depois do job de testes: o .tgz publicado é o mesmo que foi testado.
+    needs: testar
+    if: startsWith(github.ref, 'refs/tags/web-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: pacote-web
+          path: pacote
+      - name: Publicar a Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSAO_TAG="${GITHUB_REF_NAME#web-v}"
+          VERSAO_PACOTE="$(node -p "require('./web/package.json').version")"
+          if [ "$VERSAO_TAG" != "$VERSAO_PACOTE" ]; then echo "Tag $VERSAO_TAG diferente da versão do web/package.json $VERSAO_PACOTE"; exit 1; fi
+          ARQUIVO="pacote/plataforma-web-${VERSAO_PACOTE}.tgz"
+          test -f "$ARQUIVO" || { echo "Faltou $ARQUIVO"; exit 1; }
+          # Versão publicada é imutável: se a Release já existe, a publicação falha (sobe o patch seguinte).
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then echo "A Release $GITHUB_REF_NAME já existe"; exit 1; fi
+          MARCA=""
+          case "$VERSAO_PACOTE" in *-*) MARCA="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" "$ARQUIVO" $MARCA --latest=false --verify-tag \
+            --title "@plataforma/web $VERSAO_PACOTE" \
+            --notes "Pacote npm (.tgz) do @plataforma/web. Instalar pela URL deste arquivo, sem token. Ver web/README.md."
