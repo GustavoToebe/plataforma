@@ -74,8 +74,9 @@ public class CentralClient {
             throw new IllegalStateException("plataforma.central.central-url é obrigatório para o cliente de saída.");
         }
         URI uri = URI.create(url.trim());
-        if (uri.getHost() == null || (!"https".equals(uri.getScheme()) && !"http".equals(uri.getScheme()))) {
-            throw new IllegalStateException("plataforma.central.central-url precisa ser uma URL http(s) com host.");
+        if (uri.getHost() == null || !("https".equals(uri.getScheme()) || ("http".equals(uri.getScheme()) && loopback(uri.getHost())))) {
+            // As respostas da Central não são assinadas: em http puro, alguém no caminho adulteraria a sincronização de direitos.
+            throw new IllegalStateException("plataforma.central.central-url precisa ser https (http só para localhost).");
         }
         this.base = url.trim().replaceAll("/+$", "");
         this.chaveId = propriedades.chaveSaidaId();
@@ -94,6 +95,10 @@ public class CentralClient {
                 .connectTimeout(propriedades.timeoutConexao())
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
+    }
+
+    private static boolean loopback(String host) {
+        return "localhost".equals(host) || "127.0.0.1".equals(host) || "[::1]".equals(host);
     }
 
     public Resposta get(String caminho) {
@@ -119,7 +124,7 @@ public class CentralClient {
                 .header(IntegracaoFiltro.H_CHAVE, chaveId)
                 .header(IntegracaoFiltro.H_TIMESTAMP, timestamp)
                 .header(IntegracaoFiltro.H_NONCE, nonce)
-                .header(IntegracaoFiltro.H_ASSINATURA, "v1=" + assinatura)
+                .header(IntegracaoFiltro.H_ASSINATURA, assinatura)
                 .header("Accept", "application/json")
                 .method(verbo, bytes.length == 0 ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(bytes));
         if (bytes.length > 0) {

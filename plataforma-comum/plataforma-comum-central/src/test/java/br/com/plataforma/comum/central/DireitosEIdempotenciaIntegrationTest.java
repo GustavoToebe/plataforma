@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -147,16 +148,23 @@ class DireitosEIdempotenciaIntegrationTest {
     }
 
     @Test
-    void aplicaSoVersaoMaiorEIgnoraIgualOuMenorSemErro() {
+    void aplicaSoVersaoMaiorIgualSoConfirmaEMenorNaoMudaNada() {
         direitos.inicializar(snapshot("t1", 5, "ATIVA", true));
+        Instant inicio = AppDeTeste.RELOGIO.instant();
         AppDeTeste.RELOGIO.avancar(Duration.ofHours(1));
 
         assertThat(direitos.aplicar(snapshot("t1", 5, "BLOQUEADA", false))).isEqualTo(new DireitosLocais.Aplicacao(false, 5));
+        DireitosLocais.Estado confirmado = direitos.buscar("t1").orElseThrow();
+        assertThat(confirmado.direitos().situacao()).as("versão igual não troca o estado").isEqualTo("ATIVA");
+        assertThat(confirmado.direitos().acessoLiberado()).isTrue();
+        assertThat(confirmado.confirmadoEm()).as("versão igual confirma").isEqualTo(inicio.plus(Duration.ofHours(1)));
+
+        // Um webhook atrasado (versão menor) não pode estender a janela de acesso.
+        AppDeTeste.RELOGIO.avancar(Duration.ofHours(1));
         assertThat(direitos.aplicar(snapshot("t1", 4, "BLOQUEADA", false))).isEqualTo(new DireitosLocais.Aplicacao(false, 5));
         DireitosLocais.Estado intacto = direitos.buscar("t1").orElseThrow();
+        assertThat(intacto.confirmadoEm()).as("versão menor não confirma").isEqualTo(inicio.plus(Duration.ofHours(1)));
         assertThat(intacto.direitos().situacao()).isEqualTo("ATIVA");
-        assertThat(intacto.direitos().acessoLiberado()).isTrue();
-        assertThat(intacto.confirmadoEm()).isEqualTo(AppDeTeste.RELOGIO.instant());
 
         assertThat(direitos.aplicar(snapshot("t1", 6, "BLOQUEADA", false))).isEqualTo(new DireitosLocais.Aplicacao(true, 6));
         DireitosLocais.Estado novo = direitos.buscar("t1").orElseThrow();
@@ -164,6 +172,7 @@ class DireitosEIdempotenciaIntegrationTest {
         assertThat(novo.direitos().motivoBloqueio()).isEqualTo("Pagamento em atraso");
         assertThat(novo.direitos().vigenteAte()).isEqualTo(LocalDate.parse("2026-10-15"));
         assertThat(novo.direitos().limites()).isEqualTo("{\"usuarios\":5}");
+        assertThat(novo.confirmadoEm()).isEqualTo(AppDeTeste.RELOGIO.instant());
     }
 
     @Test
@@ -208,15 +217,39 @@ class DireitosEIdempotenciaIntegrationTest {
     void sincronizacaoAplicaMaioresConfirmaTodasEIgnoraDesconhecidas() {
         direitos.inicializar(snapshot("s1", 1, "ATIVA", true));
         direitos.inicializar(snapshot("s2", 3, "ATIVA", true));
+        direitos.inicializar(snapshot("s3", 7, "ATIVA", true));
         AppDeTeste.RELOGIO.avancar(Duration.ofHours(10));
 
-        int aplicadas = direitos.sincronizar(List.of(
-                snapshot("s1", 2, "ATIVA", true), snapshot("s2", 3, "ATIVA", true), snapshot("desconhecida", 1, "ATIVA", true)));
+        DireitosLocais.Sincronizacao resultado = direitos.sincronizar(List.of(
+                snapshot("s1", 2, "ATIVA", true), snapshot("s2", 3, "ATIVA", true), snapshot("s3", 6, "ATIVA", true),
+                snapshot("desconhecida", 1, "ATIVA", true)));
 
-        assertThat(aplicadas).isEqualTo(1);
+        assertThat(resultado.aplicadas()).isEqualTo(1);
+        assertThat(resultado.desconhecidas()).containsExactly("desconhecida");
+        assertThat(resultado.falhas()).isEmpty();
         assertThat(direitos.buscar("s1").orElseThrow().direitos().versao()).isEqualTo(2);
-        assertThat(direitos.buscar("s2").orElseThrow().confirmadoEm()).isEqualTo(AppDeTeste.RELOGIO.instant());
+        assertThat(direitos.buscar("s2").orElseThrow().confirmadoEm()).as("igual").isEqualTo(AppDeTeste.RELOGIO.instant());
+        assertThat(direitos.buscar("s3").orElseThrow().confirmadoEm()).as("presente na lista, mesmo com versão menor")
+                .isEqualTo(AppDeTeste.RELOGIO.instant());
         assertThat(direitos.buscar("desconhecida")).isEmpty();
+    }
+
+    @Test
+    void itemRuimNaSincronizacaoNaoImpedeOsSeguintes() {
+        direitos.inicializar(snapshot("r1", 1, "ATIVA", true));
+        direitos.inicializar(snapshot("r2", 1, "ATIVA", true));
+        direitos.inicializar(snapshot("r3", 1, "ATIVA", true));
+        AppDeTeste.RELOGIO.avancar(Duration.ofHours(10));
+        DireitosLocais.Direitos conflito = new DireitosLocais.Direitos("r2", "contratacao-OUTRA", 9, "ATIVA", true, null, null, "P", "P", "{}", "[]");
+        DireitosLocais.Direitos invalido = new DireitosLocais.Direitos("r4", "contratacao-1", 1, "QUALQUER", true, null, null, "P", "P", "{}", "[]");
+
+        DireitosLocais.Sincronizacao resultado = direitos.sincronizar(List.of(
+                snapshot("r1", 2, "ATIVA", true), conflito, invalido, snapshot("r3", 2, "ATIVA", true)));
+
+        assertThat(resultado.aplicadas()).isEqualTo(2);
+        assertThat(resultado.falhas()).containsExactly("r2", "r4");
+        assertThat(direitos.buscar("r3").orElseThrow().direitos().versao()).as("o item depois dos ruins foi aplicado").isEqualTo(2);
+        assertThat(direitos.buscar("r2").orElseThrow().direitos().versao()).as("o conflitante não foi tocado").isEqualTo(1);
     }
 
     @Test

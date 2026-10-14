@@ -74,7 +74,7 @@ class IntegracaoIntegrationTest {
     private Assinado assinar(String segredoBase64, String chave, String metodo, String caminho, long timestamp, String nonce, byte[] corpo) {
         String assinatura = HmacAssinatura.assinar(Base64.getDecoder().decode(segredoBase64), metodo, caminho, String.valueOf(timestamp),
                 nonce, corpo);
-        return new Assinado(chave, String.valueOf(timestamp), nonce, "v1=" + assinatura);
+        return new Assinado(chave, String.valueOf(timestamp), nonce, assinatura);
     }
 
     private HttpResponse<String> enviar(String metodo, String caminho, byte[] corpo, Assinado a) throws Exception {

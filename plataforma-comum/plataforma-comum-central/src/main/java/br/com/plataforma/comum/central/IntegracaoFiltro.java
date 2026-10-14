@@ -109,7 +109,7 @@ public class IntegracaoFiltro extends OncePerRequestFilter {
         }
         String consulta = request.getQueryString();
         String caminho = request.getRequestURI() + (consulta == null ? "" : "?" + consulta);
-        String esperada = "v1=" + HmacAssinatura.assinar(segredo, request.getMethod().toUpperCase(Locale.ROOT),
+        String esperada = HmacAssinatura.assinar(segredo, request.getMethod().toUpperCase(Locale.ROOT),
                 caminho, String.valueOf(timestamp), nonce, corpo);
         if (!HmacAssinatura.confere(esperada, recebida)) {
             recusar(request, response, HttpStatus.UNAUTHORIZED, "ASSINATURA_INVALIDA", chaveId);

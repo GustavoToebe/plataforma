@@ -13,6 +13,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -100,6 +101,13 @@ class AdocaoIntegrationTest {
         assertThat(contexto.getBean("centralClient")).isInstanceOf(StringBuilder.class);
         assertThat(contexto.getBean("direitosLocais")).isInstanceOf(StringBuilder.class);
         assertThat(contexto.getBeansOfType(CentralClient.class)).isEmpty();
+    }
+
+    @Test
+    void filtroDeIntegracaoNaoEhRegistradoNoConteinerSoNaCadeiaDeSeguranca() {
+        FilterRegistrationBean<?> registro = contexto.getBean("plataformaIntegracaoFiltroRegistro", FilterRegistrationBean.class);
+        assertThat(registro.isEnabled()).isFalse();
+        assertThat(registro.getFilter()).isSameAs(contexto.getBean(IntegracaoFiltro.class));
     }
 
     @Test

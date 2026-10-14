@@ -6,6 +6,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -14,6 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import br.com.plataforma.comum.web.ApiException;
 import br.com.plataforma.comum.web.BadRequestException;
 import br.com.plataforma.comum.web.ConflictException;
 import br.com.plataforma.comum.web.ResourceNotFoundException;
@@ -80,10 +82,15 @@ public class DireitosLocais {
     }
 
     /**
-     * Webhook ({@code PUT .../direitos}). Instância desconhecida: 404 {@code INSTANCIA_NAO_ENCONTRADA}; {@code contratacaoId}
-     * diferente do gravado: 409 {@code IDEMPOTENCY_KEY_CONFLITO}.
+     * Webhook ({@code PUT .../direitos}). Versão maior é aplicada; versão igual só renova {@code confirmadoEm} (a Central confirmou
+     * o estado); versão menor não muda nada (um webhook atrasado não pode estender a janela de acesso). Instância desconhecida:
+     * 404 {@code INSTANCIA_NAO_ENCONTRADA}; {@code contratacaoId} diferente do gravado: 409 {@code IDEMPOTENCY_KEY_CONFLITO}.
      */
     public Aplicacao aplicar(Direitos direitos) {
+        return aplicar(direitos, false);
+    }
+
+    private Aplicacao aplicar(Direitos direitos, boolean confirmarSempre) {
         validar(direitos);
         Instant agora = relogio.instant();
         return transacao.execute(status -> {
@@ -97,7 +104,9 @@ public class DireitosLocais {
                 throw new ConflictException("A contratação informada difere da registrada para a instância.", "IDEMPOTENCY_KEY_CONFLITO");
             }
             if (direitos.versao() <= local.versao()) {
-                jdbc.update("update " + TABELA + " set confirmado_em = ? where instancia_id = ?", Timestamp.from(agora), direitos.instanciaId());
+                if (direitos.versao() == local.versao() || confirmarSempre) {
+                    jdbc.update("update " + TABELA + " set confirmado_em = ? where instancia_id = ?", Timestamp.from(agora), direitos.instanciaId());
+                }
                 return new Aplicacao(false, local.versao());
             }
             jdbc.update("update " + TABELA + " set versao = ?, situacao = ?, acesso_liberado = ?, motivo_bloqueio = ?, vigente_ate = ?, "
@@ -111,24 +120,37 @@ public class DireitosLocais {
     }
 
     /**
-     * Sincronização (contrato 6.1): aplica a de versão maior e confirma todas as presentes, mesmo com versão igual. Instâncias que
-     * o app tem e a lista não trouxe ficam como estão (o contrato manda só alertar, nunca bloquear sozinho).
+     * Resultado da sincronização.
      *
-     * @return quantas versões novas foram aplicadas
+     * @param aplicadas   quantas versões novas foram aplicadas
+     * @param desconhecidas instâncias listadas pela Central que o app não tem (conciliação: o chamador alerta, nada é aplicado)
+     * @param falhas      instâncias com conflito ou dado inválido (o chamador alerta; as demais seguem sendo confirmadas)
      */
-    public int sincronizar(List<Direitos> lista) {
+    public record Sincronizacao(int aplicadas, List<String> desconhecidas, List<String> falhas) {
+    }
+
+    /**
+     * Sincronização (contrato 6.1): aplica as de versão maior e confirma todas as presentes, mesmo com versão igual ou menor. Um
+     * item ruim não interrompe os seguintes: se interrompesse, a repetição a cada 30 minutos cairia sempre no mesmo item e, às 72 h,
+     * todos os que vêm depois dele perderiam o acesso. Instâncias que o app tem e a lista não trouxe ficam como estão (o contrato
+     * manda só alertar, nunca bloquear sozinho).
+     */
+    public Sincronizacao sincronizar(List<Direitos> lista) {
         int aplicadas = 0;
+        List<String> desconhecidas = new ArrayList<>();
+        List<String> falhas = new ArrayList<>();
         for (Direitos direitos : lista) {
             try {
-                if (aplicar(direitos).aplicado()) {
+                if (aplicar(direitos, true).aplicado()) {
                     aplicadas++;
                 }
             } catch (ResourceNotFoundException e) {
-                // Listada pela Central e desconhecida aqui: conciliação (alerta do chamador), nada a aplicar.
-                continue;
+                desconhecidas.add(String.valueOf(direitos.instanciaId()));
+            } catch (ApiException e) {
+                falhas.add(String.valueOf(direitos.instanciaId()));
             }
         }
-        return aplicadas;
+        return new Sincronizacao(aplicadas, List.copyOf(desconhecidas), List.copyOf(falhas));
     }
 
     public Optional<Estado> buscar(String instanciaId) {

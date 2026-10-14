@@ -12,6 +12,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -64,6 +65,18 @@ public class PlataformaCentralAutoConfiguration {
             throw new IllegalStateException("plataforma.central.chaves-entrada é obrigatório com o módulo habilitado.");
         }
         return new IntegracaoFiltro(propriedades, chaves, nonces, relogio, json);
+    }
+
+    /**
+     * Impede o Spring Boot de registrar o filtro no contêiner (todo bean {@code Filter} entra em {@code /*}): ele só roda na
+     * cadeia de segurança do sistema. Sem isto, um sistema que ainda usa o próprio filtro de integração e liga o módulo só para
+     * os direitos teria a validação feita duas vezes, com chaves possivelmente diferentes e dois nonces gravados.
+     */
+    @Bean
+    public FilterRegistrationBean<IntegracaoFiltro> plataformaIntegracaoFiltroRegistro(IntegracaoFiltro filtro) {
+        FilterRegistrationBean<IntegracaoFiltro> registro = new FilterRegistrationBean<>(filtro);
+        registro.setEnabled(false);
+        return registro;
     }
 
     @Bean

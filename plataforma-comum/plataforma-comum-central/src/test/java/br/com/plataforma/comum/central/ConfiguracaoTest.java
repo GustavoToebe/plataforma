@@ -92,6 +92,9 @@ class ConfiguracaoTest {
         assertThatThrownBy(() -> new CentralClient(propriedades(null, 4096, Duration.ofSeconds(2)), relogio)).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> new CentralClient(propriedades("ftp://central", 4096, Duration.ofSeconds(2)), relogio))
                 .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> new CentralClient(propriedades("http://central.exemplo.com.br", 4096, Duration.ofSeconds(2)), relogio))
+                .as("http puro só para localhost").isInstanceOf(IllegalStateException.class);
+        assertThat(new CentralClient(propriedades("https://central.exemplo.com.br", 4096, Duration.ofSeconds(2)), relogio)).isNotNull();
         CentralProperties segredoCurto = new CentralProperties(true, null, "app", CURTO, "http://localhost:1", "/integracao/", 72,
                 Duration.ofSeconds(1), Duration.ofSeconds(1), 4096, 4096, new CentralProperties.Migracao(null, null, null, null));
         assertThatThrownBy(() -> new CentralClient(segredoCurto, relogio)).isInstanceOf(IllegalStateException.class);
@@ -136,9 +139,9 @@ class ConfiguracaoTest {
             String nonce1 = h.getFirst(IntegracaoFiltro.H_NONCE);
             assertThat(h.getFirst(IntegracaoFiltro.H_CHAVE)).isEqualTo("app-teste");
             assertThat(h.getFirst("Idempotency-Key")).isEqualTo("idem-1");
-            String esperada = "v1=" + HmacAssinatura.assinar(Base64.getDecoder().decode(SEGREDO), "POST", alvo.get(),
+            String esperada = HmacAssinatura.assinar(Base64.getDecoder().decode(SEGREDO), "POST", alvo.get(),
                     h.getFirst(IntegracaoFiltro.H_TIMESTAMP), nonce1, corpo);
-            assertThat(h.getFirst(IntegracaoFiltro.H_ASSINATURA)).isEqualTo(esperada);
+            assertThat(h.getFirst(IntegracaoFiltro.H_ASSINATURA)).isEqualTo(esperada).startsWith("v1=").doesNotStartWith("v1=v1=");
 
             cliente.get("/integracao/v1/produtos/APP/direitos");
             assertThat(ultimos.get().getFirst(IntegracaoFiltro.H_NONCE)).isNotEqualTo(nonce1);
