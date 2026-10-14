@@ -33,4 +33,20 @@ class LimiteLoginTest {
         assertThatThrownBy(() -> limite.registrar("a","a@teste.com")).isInstanceOf(LimiteLoginException.class);
         clock.tempo=60000;assertThatCode(() -> limite.registrar("b","b@teste.com")).doesNotThrowAnyException();
     }
+    @Test void primeiroBloqueioSoNaTentativaQueCruzaOLimiteDoIpOuDaConta(){
+        var clock=new Relogio();var porConta=new LimiteLogin(100,2,60,100,clock);
+        porConta.registrar("a","c@teste.com");porConta.registrar("b","c@teste.com");
+        assertThatThrownBy(() -> porConta.registrar("c","c@teste.com")).isInstanceOfSatisfying(LimiteLoginException.class,e -> assertThat(e.primeiroBloqueio()).isTrue());
+        assertThatThrownBy(() -> porConta.registrar("d","c@teste.com")).isInstanceOfSatisfying(LimiteLoginException.class,e -> assertThat(e.primeiroBloqueio()).isFalse());
+
+        var porIp=new LimiteLogin(2,100,60,100,clock);
+        porIp.registrar("ip","a@teste.com");porIp.registrar("ip","b@teste.com");
+        assertThatThrownBy(() -> porIp.registrar("ip","c@teste.com")).isInstanceOfSatisfying(LimiteLoginException.class,e -> assertThat(e.primeiroBloqueio()).isTrue());
+        assertThatThrownBy(() -> porIp.registrar("ip","d@teste.com")).isInstanceOfSatisfying(LimiteLoginException.class,e -> assertThat(e.primeiroBloqueio()).isFalse());
+
+        // Nova janela: o bloqueio volta a ter um "primeiro".
+        clock.tempo=60000;porConta.registrar("a","c@teste.com");porConta.registrar("b","c@teste.com");
+        assertThatThrownBy(() -> porConta.registrar("c","c@teste.com")).isInstanceOfSatisfying(LimiteLoginException.class,e -> assertThat(e.primeiroBloqueio()).isTrue());
+        assertThat(new LimiteLoginException(5).primeiroBloqueio()).isFalse();
+    }
 }

@@ -20,6 +20,8 @@ class AppDeTeste {
     }
 
     static final Map<String, Usuario> USUARIOS = new ConcurrentHashMap<>();
+    /** Versão do sujeito de uma sessão de suporte que não é usuário (no Servirea, o código de uso único); vazio = recusa. */
+    static final Map<String, Long> SUPORTE = new ConcurrentHashMap<>();
     static final AtomicInteger COMPARACOES = new AtomicInteger();
     static final RelogioMutavel RELOGIO = new RelogioMutavel();
 
@@ -58,6 +60,11 @@ class AppDeTeste {
             public Optional<Long> versaoDeCredenciais(String sujeito) {
                 return USUARIOS.values().stream().filter(u -> u.sujeito().equals(sujeito) && u.ativo())
                         .map(Usuario::versao).findFirst();
+            }
+
+            @Override
+            public Optional<Long> versaoDeSuporte(String sujeito) {
+                return SUPORTE.containsKey(sujeito) ? Optional.of(SUPORTE.get(sujeito)) : versaoDeCredenciais(sujeito);
             }
         };
     }

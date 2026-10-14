@@ -26,28 +26,28 @@ class ConfiguracaoTest {
     private static AuthProperties padrao() {
         return propriedades(new AuthProperties.Cookie("central_refresh", "/api/auth", null, true, "Strict"),
                 new AuthProperties.Csrf("CENTRAL-XSRF-TOKEN", "X-XSRF-TOKEN", "/", null, true, "Lax", true),
-                new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste"));
+                new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste", java.util.Map.of()));
     }
 
     @Test
     void sameSiteNoneSemSecureNaoSobe() {
         assertThatThrownBy(() -> propriedades(new AuthProperties.Cookie("r", "/", null, false, "None"),
                 new AuthProperties.Csrf("c", "h", "/", null, true, "Lax", false),
-                new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste")))
+                new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste", java.util.Map.of())))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("SameSite=None exige secure");
         assertThatThrownBy(() -> propriedades(new AuthProperties.Cookie("r", "/", null, true, "Lax"),
                 new AuthProperties.Csrf("c", "h", "/", null, false, "None", false),
-                new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste")))
+                new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste", java.util.Map.of())))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("plataforma.auth.csrf");
         assertThatThrownBy(() -> propriedades(new AuthProperties.Cookie("r", "/", null, true, "Qualquer"),
                 new AuthProperties.Csrf("c", "h", "/", null, true, "Lax", false),
-                new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste")))
+                new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste", java.util.Map.of())))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void papelDoAppPrecisaSerNomeDeIdentificador() {
-        assertThatThrownBy(() -> new AuthProperties(true, new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste"),
+        assertThatThrownBy(() -> new AuthProperties(true, new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste", java.util.Map.of()),
                 new AuthProperties.Refresh(Duration.ofDays(7)), new AuthProperties.Cookie("r", "/", null, true, "Strict"),
                 new AuthProperties.Csrf("c", "h", "/", null, true, "Lax", false), new AuthProperties.Login(60, 10, 600, "sal"),
                 new AuthProperties.Mfa(null, null, "x"), new AuthProperties.Migracao(null, null, null, "app\"; drop table x; --")))
@@ -74,16 +74,16 @@ class ConfiguracaoTest {
         AuthProperties.Mfa mfa = new AuthProperties.Mfa(null, null, "x");
         AuthProperties.Migracao migracao = new AuthProperties.Migracao(null, null, null, null);
         AuthProperties.Login comSal = new AuthProperties.Login(60, 10, 600, "sal");
-        assertThatThrownBy(() -> new AuthProperties(true, new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), " "),
+        assertThatThrownBy(() -> new AuthProperties(true, new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), " ", java.util.Map.of()),
                 refresh, cookie, csrf, comSal, mfa, migracao))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("plataforma.auth.jwt.emissor");
-        AuthProperties.Jwt jwt = new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app");
+        AuthProperties.Jwt jwt = new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app", java.util.Map.of());
         // Sem sal próprio, trocar o segredo do JWT zeraria os contadores de login: o sal não deriva de nada.
         assertThatThrownBy(() -> new AuthProperties(true, jwt, refresh, cookie, csrf, new AuthProperties.Login(60, 10, 600, null),
                 mfa, migracao))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("plataforma.auth.login.sal");
         // Desligado, nada é exigido (adoção gradual).
-        assertThat(new AuthProperties(false, new AuthProperties.Jwt(null, Duration.ofMinutes(15), Duration.ofHours(1), null),
+        assertThat(new AuthProperties(false, new AuthProperties.Jwt(null, Duration.ofMinutes(15), Duration.ofHours(1), null, null),
                 refresh, cookie, csrf, new AuthProperties.Login(60, 10, 600, null), mfa, migracao).habilitado()).isFalse();
     }
 
@@ -136,10 +136,30 @@ class ConfiguracaoTest {
     }
 
     @Test
+    void propositosDoAplicativoTemNomeELimiteDeValidade() {
+        java.util.function.Function<java.util.Map<String, Duration>, AuthProperties.Jwt> com =
+                mapa -> new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app", mapa);
+        AuthProperties.Cookie cookie = new AuthProperties.Cookie("r", "/", null, true, "Strict");
+        AuthProperties.Csrf csrf = new AuthProperties.Csrf("c", "h", "/", null, true, "Lax", false);
+        java.util.function.Function<java.util.Map<String, Duration>, AuthProperties> props = mapa -> new AuthProperties(true, com.apply(mapa),
+                new AuthProperties.Refresh(Duration.ofDays(7)), cookie, csrf, new AuthProperties.Login(60, 10, 600, "sal"),
+                new AuthProperties.Mfa(null, null, "x"), new AuthProperties.Migracao(null, null, null, null));
+
+        assertThat(props.apply(java.util.Map.of("tenant_selection", Duration.ofMinutes(5))).jwt().propositos()).hasSize(1);
+        assertThatThrownBy(() -> props.apply(java.util.Map.of("access", Duration.ofMinutes(5)))).hasMessageContaining("reservado");
+        assertThatThrownBy(() -> props.apply(java.util.Map.of("suporte", Duration.ofMinutes(5)))).hasMessageContaining("reservado");
+        assertThatThrownBy(() -> props.apply(java.util.Map.of("Nome Ruim", Duration.ofMinutes(5)))).hasMessageContaining("inválido");
+        assertThatThrownBy(() -> props.apply(java.util.Map.of("passo", Duration.ofDays(1)))).hasMessageContaining("entre 30 segundos e 1 hora");
+        assertThatThrownBy(() -> props.apply(java.util.Map.of("passo", Duration.ofSeconds(1)))).hasMessageContaining("entre 30 segundos e 1 hora");
+        // Sem a chave, o módulo funciona como antes: nenhum propósito do aplicativo.
+        assertThat(new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app", null).propositos()).isEmpty();
+    }
+
+    @Test
     void validadeDoAccessTemTeto() {
         assertThatThrownBy(() -> propriedades(new AuthProperties.Cookie("r", "/", null, true, "Strict"),
                 new AuthProperties.Csrf("c", "h", "/", null, true, "Lax", false),
-                new AuthProperties.Jwt(SEGREDO, Duration.ofHours(2), Duration.ofHours(1), "app-de-teste")))
+                new AuthProperties.Jwt(SEGREDO, Duration.ofHours(2), Duration.ofHours(1), "app-de-teste", java.util.Map.of())))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("access-ttl");
     }
 
@@ -147,11 +167,11 @@ class ConfiguracaoTest {
     void segredoDoJwtPrecisaTer32Bytes() {
         AuthProperties curto = propriedades(new AuthProperties.Cookie("r", "/", null, true, "Strict"),
                 new AuthProperties.Csrf("c", "h", "/", null, true, "Lax", false),
-                new AuthProperties.Jwt(Base64.getEncoder().encodeToString(new byte[16]), Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste"));
+                new AuthProperties.Jwt(Base64.getEncoder().encodeToString(new byte[16]), Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste", java.util.Map.of()));
         assertThatThrownBy(() -> new JwtService(curto, new RelogioMutavel())).isInstanceOf(IllegalStateException.class);
         AuthProperties invalido = propriedades(new AuthProperties.Cookie("r", "/", null, true, "Strict"),
                 new AuthProperties.Csrf("c", "h", "/", null, true, "Lax", false),
-                new AuthProperties.Jwt("não é base64!", Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste"));
+                new AuthProperties.Jwt("não é base64!", Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste", java.util.Map.of()));
         assertThatThrownBy(() -> new JwtService(invalido, new RelogioMutavel())).isInstanceOf(IllegalStateException.class);
     }
 
@@ -178,7 +198,7 @@ class ConfiguracaoTest {
         AuthProperties outra = propriedades(new AuthProperties.Cookie("r", "/", null, true, "Strict"),
                 new AuthProperties.Csrf("c", "h", "/", null, true, "Lax", false),
                 new AuthProperties.Jwt(Base64.getEncoder().encodeToString("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ".getBytes(StandardCharsets.UTF_8)),
-                        Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste"));
+                        Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste", java.util.Map.of()));
         assertThatThrownBy(() -> new JwtService(outra, new RelogioMutavel()).validar(token, JwtService.ACESSO))
                 .isInstanceOf(br.com.plataforma.comum.web.UnauthorizedException.class);
     }
@@ -216,7 +236,7 @@ class ConfiguracaoTest {
 
         AuthProperties sempre = propriedades(new AuthProperties.Cookie("central_refresh", "/api/auth", null, true, "Strict"),
                 new AuthProperties.Csrf("CENTRAL-XSRF-TOKEN", "X-XSRF-TOKEN", "/", null, true, "Lax", false),
-                new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste"));
+                new AuthProperties.Jwt(SEGREDO, Duration.ofMinutes(15), Duration.ofHours(1), "app-de-teste", java.util.Map.of()));
         PoliticaCsrf toda = new PoliticaCsrf(sempre, new CookieDeRefresh(sempre));
         assertThat(toda.exigido().matches(post)).isTrue();
         assertThat(toda.exigido().matches(get)).isFalse();

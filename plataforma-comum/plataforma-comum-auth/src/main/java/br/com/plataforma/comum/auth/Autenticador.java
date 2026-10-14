@@ -1,6 +1,8 @@
 package br.com.plataforma.comum.auth;
 
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -51,6 +53,16 @@ public class Autenticador {
      * @throws MfaException                                                  com {@code MFA_NECESSARIO} ou {@code MFA_CODIGO_INVALIDO}
      */
     public Sessao entrar(String login, String senha, String codigoMfa, String ip) {
+        UsuariosDaAutenticacao.Credencial credencial = verificarCredenciais(login, senha, codigoMfa, ip);
+        return novaSessao(credencial.sujeito(), credencial.versao(), ip);
+    }
+
+    /**
+     * Primeiro passo do login: limite de tentativas, senha e segundo fator, <b>sem abrir sessão</b>. Para o sistema que decide o
+     * que fazer em seguida (escolher a paróquia, por exemplo) antes de chamar {@link #novaSessao(String, long, String, Map)}.
+     * Mesmas garantias de {@link #entrar}: a mesma mensagem para usuário inexistente, senha errada e usuário inativo.
+     */
+    public UsuariosDaAutenticacao.Credencial verificarCredenciais(String login, String senha, String codigoMfa, String ip) {
         limite.registrar(ip, login);
         Optional<UsuariosDaAutenticacao.Credencial> encontrado = usuarios.buscarPorLogin(login);
         String hash = encontrado.map(UsuariosDaAutenticacao.Credencial::senhaHash).orElseGet(this::hashFalso);
@@ -60,19 +72,35 @@ public class Autenticador {
         }
         UsuariosDaAutenticacao.Credencial credencial = encontrado.get();
         mfa.verificarLogin(credencial.sujeito(), codigoMfa);
-        return novaSessao(credencial.sujeito(), credencial.versao(), ip);
+        return credencial;
     }
 
     /** Emite access e refresh novos para o sujeito (login, ou depois de trocar a senha e encerrar as demais sessões). */
     public Sessao novaSessao(String sujeito, long versao, String ip) {
-        return new Sessao(sujeito, jwt.emitirAcesso(sujeito, versao), jwt.expiraEmSegundos(), refresh.emitir(sujeito, versao, ip));
+        return novaSessao(sujeito, versao, ip, Map.of());
+    }
+
+    /** Igual a {@link #novaSessao(String, long, String)}, com claims do sistema no token de acesso (a paróquia e o papel, por exemplo). */
+    public Sessao novaSessao(String sujeito, long versao, String ip, Map<String, ?> extras) {
+        return new Sessao(sujeito, jwt.emitirAcesso(sujeito, versao, extras), jwt.expiraEmSegundos(), refresh.emitir(sujeito, versao, ip));
     }
 
     /** Renovação: troca o refresh (rotação) e emite um access com a versão atual das credenciais. */
     public Sessao renovar(String refreshBruto, String ip) {
-        RefreshTokens.Rotacao rotacao = refresh.rotacionar(refreshBruto, ip);
-        return new Sessao(rotacao.sujeito(), jwt.emitirAcesso(rotacao.sujeito(), rotacao.versao()), jwt.expiraEmSegundos(),
-                rotacao.refreshToken());
+        return renovar(refreshBruto, ip, sujeito -> Map.of());
+    }
+
+    /**
+     * Renovação em que o sistema decide os claims do novo acesso (a paróquia pedida, o papel no vínculo...). A função roda
+     * <b>dentro</b> da transação da rotação, depois de o token, o usuário e a versão das credenciais terem sido conferidos e antes
+     * de o refresh novo ser gravado. Se ela lançar (um 403 por falta de vínculo, por exemplo), a rotação inteira é desfeita: o
+     * refresh antigo continua válido e isso não conta como reuso. Não deve chamar este mesmo serviço nem demorar (a trava do
+     * sujeito está presa).
+     */
+    public Sessao renovar(String refreshBruto, String ip, Function<String, Map<String, ?>> extrasDoSujeito) {
+        RefreshTokens.Rotacao rotacao = refresh.rotacionar(refreshBruto, ip, extrasDoSujeito);
+        return new Sessao(rotacao.sujeito(), jwt.emitirAcesso(rotacao.sujeito(), rotacao.versao(), rotacao.extras()),
+                jwt.expiraEmSegundos(), rotacao.refreshToken());
     }
 
     public void sair(String refreshBruto) {
@@ -94,11 +122,26 @@ public class Autenticador {
 
     /** Igual a {@link #autenticar}, para o token de sessão de suporte (traz operador e motivo, para a auditoria). */
     public JwtService.Token autenticarSuporte(String token) {
-        return conferir(jwt.validar(token, JwtService.SUPORTE));
+        JwtService.Token validado = jwt.validar(token, JwtService.SUPORTE);
+        return conferir(validado, usuarios.versaoDeSuporte(validado.sujeito()));
+    }
+
+    /**
+     * Valida um token de um propósito do aplicativo ({@code plataforma.auth.jwt.propositos}), conferindo também a versão das
+     * credenciais: trocar a senha invalida o passo intermediário do login.
+     */
+    public JwtService.Token autenticarComo(String token, String proposito) {
+        if (!jwt.propositoDoAplicativo(proposito)) {
+            throw new IllegalArgumentException("Propósito não configurado em plataforma.auth.jwt.propositos: " + proposito);
+        }
+        return conferir(jwt.validar(token, proposito));
     }
 
     private JwtService.Token conferir(JwtService.Token token) {
-        Optional<Long> atual = usuarios.versaoDeCredenciais(token.sujeito());
+        return conferir(token, usuarios.versaoDeCredenciais(token.sujeito()));
+    }
+
+    private static JwtService.Token conferir(JwtService.Token token, Optional<Long> atual) {
         if (atual.isEmpty() || atual.get() != token.versao()) {
             throw new UnauthorizedException(TOKEN_RECUSADO);
         }

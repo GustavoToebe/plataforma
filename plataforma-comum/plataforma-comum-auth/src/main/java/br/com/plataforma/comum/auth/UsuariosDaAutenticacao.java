@@ -25,4 +25,14 @@ public interface UsuariosDaAutenticacao {
      * requisição autenticada e a cada rotação do refresh: o módulo recusa o token cujo {@code cv} difere.
      */
     Optional<Long> versaoDeCredenciais(String sujeito);
+
+    /**
+     * Versão conferida no token de sessão de suporte, cujo sujeito pode não ser um usuário (no Servirea é o código de uso único
+     * que a Central entregou). Vazio recusa o token. Por padrão é igual a {@link #versaoDeCredenciais}; o sistema que emite
+     * suporte para um sujeito que não é usuário a implementa sobre o que tiver (o código ainda dentro da janela da sessão, por
+     * exemplo: o código é de uso único, então "ainda não usado" não serve, e sim "trocado há menos que a validade do token").
+     */
+    default Optional<Long> versaoDeSuporte(String sujeito) {
+        return versaoDeCredenciais(sujeito);
+    }
 }

@@ -45,6 +45,7 @@ import br.com.plataforma.comum.web.UnauthorizedException;
         "plataforma.auth.login.limite-ip=1000",
         "plataforma.auth.login.sal=sal-do-teste",
         "plataforma.auth.jwt.emissor=app-de-teste",
+        "plataforma.auth.jwt.propositos.tenant_selection=PT5M",
         "spring.main.banner-mode=off"
 })
 class AuthIntegrationTest {
@@ -74,6 +75,7 @@ class AuthIntegrationTest {
         jdbc.update("delete from plataforma.mfa");
         jdbc.update("delete from plataforma.mfa_recuperacao");
         AppDeTeste.USUARIOS.clear();
+        AppDeTeste.SUPORTE.clear();
         AppDeTeste.COMPARACOES.set(0);
         criarUsuario("ana@x.com", "ana", "segredo-da-ana", true, 1);
     }
@@ -187,6 +189,122 @@ class AuthIntegrationTest {
 
         Autenticador.Sessao nova = autenticador.entrar("ana@x.com", "segredo-da-ana", null, "10.0.1.7");
         assertThat(autenticador.autenticar(autenticador.renovar(nova.refreshToken(), "10.0.1.7").accessToken()).versao()).isEqualTo(2);
+    }
+
+    @Test
+    void verificarCredenciaisConfereSenhaELimiteMasNaoAbreSessao() {
+        UsuariosDaAutenticacao.Credencial credencial = autenticador.verificarCredenciais("ana@x.com", "segredo-da-ana", null, "10.0.8.1");
+        assertThat(credencial.sujeito()).isEqualTo("ana");
+        assertThat(credencial.versao()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from plataforma.refresh_token", Integer.class)).isZero();
+        assertThatThrownBy(() -> autenticador.verificarCredenciais("ana@x.com", "errada", null, "10.0.8.1"))
+                .isInstanceOf(UnauthorizedException.class);
+        mudarUsuario("ana@x.com", false, 1);
+        assertThatThrownBy(() -> autenticador.verificarCredenciais("ana@x.com", "segredo-da-ana", null, "10.0.8.1"))
+                .isInstanceOf(UnauthorizedException.class);
+    }
+
+    @Test
+    void novaSessaoLevaOsClaimsDoSistemaNoAccess() {
+        Autenticador.Sessao sessao = autenticador.novaSessao("ana", 1, "10.0.8.2", java.util.Map.of("tenant", "t1", "roles", List.of("ADMIN")));
+        JwtService.Token token = autenticador.autenticar(sessao.accessToken());
+        assertThat(token.extras()).containsEntry("tenant", "t1").containsEntry("roles", List.of("ADMIN"));
+        assertThat(autenticador.autenticar(autenticador.novaSessao("ana", 1, "10.0.8.2").accessToken()).extras()).isEmpty();
+    }
+
+    @Test
+    void renovarCalculaOsClaimsDentroDaRotacao() {
+        Autenticador.Sessao sessao = autenticador.novaSessao("ana", 1, "10.0.8.3", java.util.Map.of("tenant", "t1"));
+        Autenticador.Sessao nova = autenticador.renovar(sessao.refreshToken(), "10.0.8.3",
+                sujeito -> java.util.Map.of("tenant", "t2", "quem", sujeito));
+        assertThat(autenticador.autenticar(nova.accessToken()).extras()).containsEntry("tenant", "t2").containsEntry("quem", "ana");
+        // Sem função, a renovação não carrega claims (o comportamento da 1.6.0).
+        assertThat(autenticador.autenticar(autenticador.renovar(nova.refreshToken(), "10.0.8.3").accessToken()).extras()).isEmpty();
+    }
+
+    /** O sistema recusa a renovação (um 403 por falta de vínculo): o refresh antigo continua valendo e isso não é reuso. */
+    @Test
+    void recusaDoSistemaNaRenovacaoDesfazARotacaoEOTokenAntigoContinuaValido() {
+        Autenticador.Sessao sessao = autenticador.entrar("ana@x.com", "segredo-da-ana", null, "10.0.8.4");
+        assertThatThrownBy(() -> autenticador.renovar(sessao.refreshToken(), "10.0.8.4", sujeito -> {
+            throw new br.com.plataforma.comum.web.ForbiddenException("Sem vínculo com a paróquia.");
+        })).isInstanceOf(br.com.plataforma.comum.web.ForbiddenException.class);
+
+        assertThat(jdbc.queryForObject("select count(*) from plataforma.refresh_token", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from plataforma.refresh_token where revogado_em is null", Integer.class)).isEqualTo(1);
+        Autenticador.Sessao nova = autenticador.renovar(sessao.refreshToken(), "10.0.8.4");
+        assertThat(autenticador.autenticar(nova.accessToken()).sujeito()).isEqualTo("ana");
+        // Agora sim, o antigo foi gasto: reusá-lo é reuso.
+        assertThatThrownBy(() -> autenticador.renovar(sessao.refreshToken(), "10.0.8.4")).isInstanceOf(UnauthorizedException.class);
+    }
+
+    @Test
+    void propositoDoAplicativoTemValidadePropriaECarregaClaims() {
+        String token = jwt.emitir("tenant_selection", "ana", 1, java.util.Map.of("candidatos", List.of("t1", "t2")));
+        JwtService.Token validado = autenticador.autenticarComo(token, "tenant_selection");
+        assertThat(validado.sujeito()).isEqualTo("ana");
+        assertThat(validado.proposito()).isEqualTo("tenant_selection");
+        assertThat(validado.extras()).containsEntry("candidatos", List.of("t1", "t2"));
+
+        // Nunca vale como acesso nem como suporte, e o contrário também não.
+        assertThatThrownBy(() -> autenticador.autenticar(token)).isInstanceOf(UnauthorizedException.class);
+        assertThatThrownBy(() -> autenticador.autenticarSuporte(token)).isInstanceOf(UnauthorizedException.class);
+        assertThatThrownBy(() -> autenticador.autenticarComo(jwt.emitirAcesso("ana", 1), "tenant_selection"))
+                .isInstanceOf(UnauthorizedException.class);
+
+        // Validade de 5 minutos, não os 15 do acesso.
+        AppDeTeste.RELOGIO.avancar(Duration.ofMinutes(4));
+        assertThat(autenticador.autenticarComo(token, "tenant_selection").sujeito()).isEqualTo("ana");
+        AppDeTeste.RELOGIO.avancar(Duration.ofMinutes(2));
+        assertThatThrownBy(() -> autenticador.autenticarComo(token, "tenant_selection")).isInstanceOf(UnauthorizedException.class);
+    }
+
+    @Test
+    void propositoDoAplicativoCaiQuandoASenhaMudaOuOPropositoNaoExiste() {
+        String token = jwt.emitir("tenant_selection", "ana", 1, java.util.Map.of());
+        mudarUsuario("ana@x.com", true, 2);
+        assertThatThrownBy(() -> autenticador.autenticarComo(token, "tenant_selection")).isInstanceOf(UnauthorizedException.class);
+
+        assertThatThrownBy(() -> jwt.emitir("inexistente", "ana", 1, java.util.Map.of())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> autenticador.autenticarComo(jwt.emitirAcesso("ana", 2), "access")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> autenticador.autenticarComo(token, "suporte")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /** O sujeito de uma sessão de suporte pode não ser um usuário: a versão vem de {@code versaoDeSuporte}. */
+    @Test
+    void suporteComSujeitoQueNaoEUsuarioConfereAVersaoDeSuporteELevaClaims() {
+        AppDeTeste.SUPORTE.put("codigo-1", 7L);
+        String token = jwt.emitirSuporte("codigo-1", 7, "operador-1", "chamado 42", Duration.ofMinutes(10),
+                java.util.Map.of("tenant", "t1", "email", "op@x.com"));
+        JwtService.Token validado = autenticador.autenticarSuporte(token);
+        assertThat(validado.suporte()).isTrue();
+        assertThat(validado.extras()).containsEntry("tenant", "t1").containsEntry("email", "op@x.com");
+
+        AppDeTeste.SUPORTE.put("codigo-1", 8L);
+        assertThatThrownBy(() -> autenticador.autenticarSuporte(token)).isInstanceOf(UnauthorizedException.class);
+        AppDeTeste.SUPORTE.remove("codigo-1");
+        assertThatThrownBy(() -> autenticador.autenticarSuporte(token)).isInstanceOf(UnauthorizedException.class);
+    }
+
+    /** Sem sobrescrever {@code versaoDeSuporte}, o suporte continua conferindo a versão do usuário (como na 1.6.0). */
+    @Test
+    void suporteSemVersaoDeSuporteUsaAVersaoDasCredenciais() {
+        String token = jwt.emitirSuporte("ana", 1, "operador-1", "chamado 42", Duration.ofMinutes(10));
+        assertThat(autenticador.autenticarSuporte(token).sujeito()).isEqualTo("ana");
+        mudarUsuario("ana@x.com", true, 2);
+        assertThatThrownBy(() -> autenticador.autenticarSuporte(token)).isInstanceOf(UnauthorizedException.class);
+    }
+
+    /** Só a tentativa que cruza o limite abre o bloqueio; as seguintes da janela apenas recebem o 429. */
+    @Test
+    void soAPrimeiraTentativaAlemDoLimiteMarcaOPrimeiroBloqueio() {
+        for (int i = 0; i < 20; i++) {
+            assertThatThrownBy(() -> autenticador.entrar("ana@x.com", "errada", null, "10.0.8.9")).isInstanceOf(UnauthorizedException.class);
+        }
+        assertThatThrownBy(() -> autenticador.entrar("ana@x.com", "errada", null, "10.0.8.9"))
+                .isInstanceOfSatisfying(LimiteLoginException.class, e -> assertThat(e.primeiroBloqueio()).isTrue());
+        assertThatThrownBy(() -> autenticador.entrar("ana@x.com", "errada", null, "10.0.8.9"))
+                .isInstanceOfSatisfying(LimiteLoginException.class, e -> assertThat(e.primeiroBloqueio()).isFalse());
     }
 
     @Test

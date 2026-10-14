@@ -46,7 +46,8 @@ public class LimiteLogin {
         boolean bloqueiaConta = b.tentativas() > porConta;
         if (bloqueiaIp || bloqueiaConta) {
             long ate = Math.max(bloqueiaIp ? a.ateMs() : agora, bloqueiaConta ? b.ateMs() : agora);
-            throw new LimiteLoginException(Math.max(1, (ate - agora + 999) / 1000));
+            boolean abriu = (bloqueiaIp && a.tentativas() == porIp + 1) || (bloqueiaConta && b.tentativas() == porConta + 1);
+            throw new LimiteLoginException(Math.max(1, (ate - agora + 999) / 1000), abriu);
         }
     }
 
