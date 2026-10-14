@@ -73,10 +73,11 @@ public class PlataformaAuthAutoConfiguration {
     @Bean
     @DependsOn("plataformaMigracao")
     @ConditionalOnMissingBean
-    public LimiteLogin plataformaLimiteLogin(JdbcTemplate jdbc, AuthProperties propriedades, Clock relogio) {
+    public LimiteLogin plataformaLimiteLogin(JdbcTemplate jdbc, PlatformTransactionManager transacoes, AuthProperties propriedades,
+                                             Clock relogio) {
         AuthProperties.Login login = propriedades.login();
-        String sal = login.sal() == null || login.sal().isBlank() ? "limite-login:" + propriedades.jwt().secret() : login.sal();
-        return new LimiteLogin(login.limiteIp(), login.limiteConta(), login.janelaSegundos(), new ContadorBanco(jdbc), relogio, sal);
+        return new LimiteLogin(login.limiteIp(), login.limiteConta(), login.janelaSegundos(), new ContadorBanco(jdbc, transacoes),
+                relogio, login.sal());
     }
 
     @Bean

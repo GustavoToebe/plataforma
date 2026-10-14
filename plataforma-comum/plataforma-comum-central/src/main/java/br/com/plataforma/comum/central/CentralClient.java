@@ -11,6 +11,10 @@ import java.time.Clock;
 import java.util.Base64;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import br.com.plataforma.comum.seguranca.HmacAssinatura;
 
@@ -21,6 +25,13 @@ import br.com.plataforma.comum.seguranca.HmacAssinatura;
  * decide o que repetir, conforme a tabela de erros do contrato.
  */
 public class CentralClient {
+
+    /** Agenda o fim do prazo de leitura do corpo das respostas (uma thread de plataforma, daemon, para todos os clientes). */
+    private static final ScheduledExecutorService PRAZOS = Executors.newSingleThreadScheduledExecutor(tarefa -> {
+        Thread thread = new Thread(tarefa, "plataforma-central-prazos");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     /** Status HTTP e corpo da resposta da Central, sem interpretação. */
     public static final class Resposta {
@@ -97,6 +108,14 @@ public class CentralClient {
                 .build();
     }
 
+    private static void fecharSemErro(InputStream corpo) {
+        try {
+            corpo.close();
+        } catch (IOException e) {
+            // a leitura em andamento já vai falhar; nada a fazer aqui
+        }
+    }
+
     private static boolean loopback(String host) {
         return "localhost".equals(host) || "127.0.0.1".equals(host) || "[::1]".equals(host);
     }
@@ -136,7 +155,16 @@ public class CentralClient {
         try {
             HttpResponse<InputStream> resposta = http.send(pedido.build(), HttpResponse.BodyHandlers.ofInputStream());
             try (InputStream corpoResposta = resposta.body()) {
-                byte[] lido = corpoResposta.readNBytes(propriedades.limiteRespostaBytes() + 1);
+                // O timeout do pedido só cobre a chegada dos cabeçalhos: o corpo tem o seu próprio prazo, senão uma Central
+                // que manda o corpo devagar prende a thread de quem chamou para sempre. Fechar o stream destrava a leitura.
+                ScheduledFuture<?> prazo = PRAZOS.schedule(() -> fecharSemErro(corpoResposta),
+                        propriedades.timeoutResposta().toMillis(), TimeUnit.MILLISECONDS);
+                byte[] lido;
+                try {
+                    lido = corpoResposta.readNBytes(propriedades.limiteRespostaBytes() + 1);
+                } finally {
+                    prazo.cancel(false);
+                }
                 if (lido.length > propriedades.limiteRespostaBytes()) {
                     throw new CentralIndisponivelException("Resposta da Central maior que o limite permitido.", null);
                 }

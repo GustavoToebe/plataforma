@@ -27,6 +27,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import br.com.plataforma.comum.seguranca.login.LimiteLoginException;
@@ -41,6 +43,8 @@ import br.com.plataforma.comum.web.UnauthorizedException;
         "plataforma.auth.mfa.contexto=teste",
         "plataforma.auth.login.limite-conta=20",
         "plataforma.auth.login.limite-ip=1000",
+        "plataforma.auth.login.sal=sal-do-teste",
+        "plataforma.auth.jwt.emissor=app-de-teste",
         "spring.main.banner-mode=off"
 })
 class AuthIntegrationTest {
@@ -61,6 +65,7 @@ class AuthIntegrationTest {
     @Autowired DataSource dataSource;
     @Autowired PasswordEncoder senhas;
     @Autowired Environment ambiente;
+    @Autowired PlatformTransactionManager transacoes;
 
     @BeforeEach
     void limpar() {
@@ -134,6 +139,54 @@ class AuthIntegrationTest {
         // Nada de e-mail nem IP em claro na tabela do contador.
         assertThat(jdbc.queryForList("select chave from plataforma.login_tentativa", String.class))
                 .allSatisfy(chave -> assertThat(chave).doesNotContain("ana@x.com").doesNotContain("10.0.0.3"));
+    }
+
+    /**
+     * O sistema costuma chamar o login dentro do próprio {@code @Transactional}: a senha errada (401) desfaz a transação de
+     * fora, mas a tentativa contada tem de ficar, senão o limite nunca dispara.
+     */
+    @Test
+    void limiteDeLoginContaMesmoQuandoATransacaoDoSistemaEhDesfeita() {
+        TransactionTemplate doSistema = new TransactionTemplate(transacoes);
+        for (int i = 0; i < 20; i++) {
+            assertThatThrownBy(() -> doSistema.executeWithoutResult(s -> autenticador.entrar("ana@x.com", "errada", null, "10.0.1.3")))
+                    .isInstanceOf(UnauthorizedException.class);
+        }
+        assertThatThrownBy(() -> doSistema.executeWithoutResult(s -> autenticador.entrar("ana@x.com", "segredo-da-ana", null, "10.0.1.3")))
+                .isInstanceOf(LimiteLoginException.class);
+    }
+
+    /** O reuso derruba todas as sessões mesmo que o sistema chame a renovação dentro de uma transação que o 401 desfaz. */
+    @Test
+    void reusoDerrubaAsSessoesMesmoQuandoATransacaoDoSistemaEhDesfeita() {
+        Autenticador.Sessao primeira = autenticador.entrar("ana@x.com", "segredo-da-ana", null, "10.0.1.5");
+        Autenticador.Sessao outra = autenticador.entrar("ana@x.com", "segredo-da-ana", null, "10.0.1.6");
+        autenticador.renovar(primeira.refreshToken(), "10.0.1.5");
+        TransactionTemplate doSistema = new TransactionTemplate(transacoes);
+
+        assertThatThrownBy(() -> doSistema.executeWithoutResult(s -> autenticador.renovar(primeira.refreshToken(), "10.0.1.9")))
+                .isInstanceOf(UnauthorizedException.class);
+
+        assertThat(jdbc.queryForObject(
+                "select count(*) from plataforma.refresh_token where sujeito = 'ana' and revogado_em is null", Integer.class)).isZero();
+        assertThatThrownBy(() -> autenticador.renovar(outra.refreshToken(), "10.0.1.6")).isInstanceOf(UnauthorizedException.class);
+    }
+
+    /**
+     * Login que corre junto com a troca de senha ou a ativação do MFA: a sessão nasce com a versão antiga das credenciais e
+     * não pode virar um access novo depois que a versão subiu.
+     */
+    @Test
+    void refreshEmitidoComVersaoAntigaNaoRenova() {
+        Autenticador.Sessao sessao = autenticador.entrar("ana@x.com", "segredo-da-ana", null, "10.0.1.7");
+        mudarUsuario("ana@x.com", true, 2);
+
+        assertThatThrownBy(() -> autenticador.renovar(sessao.refreshToken(), "10.0.1.7")).isInstanceOf(UnauthorizedException.class);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from plataforma.refresh_token where sujeito = 'ana' and revogado_em is null", Integer.class)).isZero();
+
+        Autenticador.Sessao nova = autenticador.entrar("ana@x.com", "segredo-da-ana", null, "10.0.1.7");
+        assertThat(autenticador.autenticar(autenticador.renovar(nova.refreshToken(), "10.0.1.7").accessToken()).versao()).isEqualTo(2);
     }
 
     @Test

@@ -38,6 +38,8 @@ import br.com.plataforma.comum.teste.PostgresDeTeste;
         "plataforma.central.migracao.papel-app=app_rt",
         "plataforma.auth.habilitado=true",
         "plataforma.auth.jwt.secret=" + IntegracaoIntegrationTest.SEGREDO_A,
+        "plataforma.auth.jwt.emissor=app-de-teste",
+        "plataforma.auth.login.sal=sal-do-teste",
         "plataforma.auth.mfa.chaves=k1:" + IntegracaoIntegrationTest.SEGREDO_A,
         "plataforma.auth.mfa.chave-ativa=k1",
         "spring.main.banner-mode=off"

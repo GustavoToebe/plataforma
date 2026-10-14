@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import br.com.plataforma.comum.web.UnauthorizedException;
@@ -18,8 +19,12 @@ import br.com.plataforma.comum.web.UnauthorizedException;
  * sessões do sujeito são revogadas.
  *
  * <p>Tudo que muda as sessões de um sujeito (rotação, reuso, encerramento) roda sob um {@code pg_advisory_xact_lock} por
- * sujeito, na mesma transação. Assim a revogação por reuso é confirmada junto com a decisão (o 401 sai depois do commit,
- * sem transação aninhada que travaria contra a própria transação) e duas rotações do mesmo sujeito nunca se cruzam.
+ * sujeito, numa transação <b>própria</b> ({@code REQUIRES_NEW}). Assim a revogação por reuso é confirmada antes do 401 sair,
+ * mesmo quando o sistema chama a renovação dentro do seu {@code @Transactional} (que o 401 desfaz), e duas rotações do
+ * mesmo sujeito nunca se cruzam.
+ *
+ * <p>Cada token guarda a versão das credenciais com que nasceu. A rotação só vale se ela ainda for a atual: um login que
+ * correu junto com a troca de senha ou a ativação do MFA nasce com a versão antiga e não vira um access novo.
  */
 public class RefreshTokens {
 
@@ -29,7 +34,7 @@ public class RefreshTokens {
     /** Resultado de uma rotação, decidido dentro da transação. */
     enum Estado { OK, INVALIDO, REUTILIZADO, EXPIRADO, INATIVO }
 
-    private record Linha(String sujeito, Instant expiraEm, boolean revogado) {
+    private record Linha(String sujeito, Instant expiraEm, boolean revogado, long versao) {
     }
 
     /** @param versao versão das credenciais do sujeito no momento da rotação */
@@ -50,14 +55,19 @@ public class RefreshTokens {
                          UsuariosDaAutenticacao usuarios, Clock relogio) {
         this.jdbc = jdbc;
         this.transacao = new TransactionTemplate(gerenteDeTransacao);
+        this.transacao.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.propriedades = propriedades;
         this.usuarios = usuarios;
         this.relogio = relogio;
     }
 
-    /** Novo refresh token para o sujeito (login). Devolve o valor bruto; só o hash fica no banco. */
-    public String emitir(String sujeito, String ip) {
-        String bruto = inserir(sujeito, ip);
+    /**
+     * Novo refresh token para o sujeito (login). Devolve o valor bruto; só o hash fica no banco.
+     *
+     * @param versao versão das credenciais conferida no login; a rotação recusa o token se ela mudar
+     */
+    public String emitir(String sujeito, long versao, String ip) {
+        String bruto = inserir(sujeito, versao, ip);
         limparSeNecessario();
         return bruto;
     }
@@ -107,8 +117,9 @@ public class RefreshTokens {
         String sujeito = dono.get();
         travar(sujeito);
         // Relê depois do lock: outra requisição pode ter rotacionado ou encerrado o token enquanto esta esperava.
-        List<Linha> linhas = jdbc.query("select sujeito, expira_em, revogado_em from plataforma.refresh_token where token_hash = ?",
-                (rs, n) -> new Linha(rs.getString(1), rs.getTimestamp(2).toInstant(), rs.getTimestamp(3) != null), hash);
+        List<Linha> linhas = jdbc.query(
+                "select sujeito, expira_em, revogado_em, versao from plataforma.refresh_token where token_hash = ?",
+                (rs, n) -> new Linha(rs.getString(1), rs.getTimestamp(2).toInstant(), rs.getTimestamp(3) != null, rs.getLong(4)), hash);
         if (linhas.isEmpty()) {
             return new Decisao(Estado.INVALIDO, null);
         }
@@ -126,20 +137,26 @@ public class RefreshTokens {
         if (versao.isEmpty()) {
             return new Decisao(Estado.INATIVO, null);
         }
+        if (versao.get() != atual.versao()) {
+            // Sessões de antes da troca de senha ou de MFA: apagadas (não revogadas), para não contarem como reuso depois.
+            jdbc.update("delete from plataforma.refresh_token where sujeito = ? and versao <> ?", sujeito, versao.get());
+            return new Decisao(Estado.INATIVO, null);
+        }
         String novo = TokenOpaco.gerar();
         java.util.UUID novoId = jdbc.queryForObject("""
-                insert into plataforma.refresh_token (sujeito, token_hash, expira_em, ip)
-                values (?, ?, ?, ?) returning id""", java.util.UUID.class,
-                sujeito, TokenOpaco.hash(novo), Timestamp.from(agora.plus(propriedades.refresh().ttl())), ip(ip));
+                insert into plataforma.refresh_token (sujeito, token_hash, expira_em, ip, versao)
+                values (?, ?, ?, ?, ?) returning id""", java.util.UUID.class,
+                sujeito, TokenOpaco.hash(novo), Timestamp.from(agora.plus(propriedades.refresh().ttl())), ip(ip), versao.get());
         jdbc.update("update plataforma.refresh_token set revogado_em = ?, substituido_por = ? where token_hash = ?",
                 Timestamp.from(agora), novoId, hash);
         return new Decisao(Estado.OK, new Rotacao(sujeito, versao.get(), novo));
     }
 
-    private String inserir(String sujeito, String ip) {
+    private String inserir(String sujeito, long versao, String ip) {
         String bruto = TokenOpaco.gerar();
-        jdbc.update("insert into plataforma.refresh_token (sujeito, token_hash, expira_em, ip) values (?, ?, ?, ?)",
-                sujeito, TokenOpaco.hash(bruto), Timestamp.from(relogio.instant().plus(propriedades.refresh().ttl())), ip(ip));
+        jdbc.update("insert into plataforma.refresh_token (sujeito, token_hash, expira_em, ip, versao) values (?, ?, ?, ?, ?)",
+                sujeito, TokenOpaco.hash(bruto), Timestamp.from(relogio.instant().plus(propriedades.refresh().ttl())), ip(ip),
+                versao);
         return bruto;
     }
 

@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +55,8 @@ public class IntegracaoFiltro extends OncePerRequestFilter {
     static final long JANELA_SEGUNDOS = 300L;
     private static final int NONCE_MAX = 128;
     private static final int CABECALHO_MAX = 512;
+    /** Igual à Central: {@code v1=} e 64 hex minúsculos. Fora disso recusa antes de ler o corpo. */
+    private static final Pattern FORMATO_ASSINATURA = Pattern.compile("v1=[0-9a-f]{64}");
 
     private static final Logger log = LoggerFactory.getLogger(IntegracaoFiltro.class);
 
@@ -94,7 +97,7 @@ public class IntegracaoFiltro extends OncePerRequestFilter {
         }
         String nonce = limpar(request.getHeader(H_NONCE));
         String recebida = limpar(request.getHeader(H_ASSINATURA));
-        if (nonce == null || nonce.length() > NONCE_MAX || recebida == null || !recebida.startsWith("v1=")) {
+        if (nonce == null || nonce.length() > NONCE_MAX || recebida == null || !FORMATO_ASSINATURA.matcher(recebida).matches()) {
             recusar(request, response, HttpStatus.UNAUTHORIZED, "ASSINATURA_INVALIDA", chaveId);
             return;
         }

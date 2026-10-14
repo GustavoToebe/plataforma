@@ -90,6 +90,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception ex, HttpServletRequest request) {
+        if (LimiteCorpoFilter.causadoPorCorpoExcedido(ex)) {
+            // Corpo grande é problema do cliente, não do servidor: 413 e nada de aviso como 500.
+            CorpoExcedidoException erro = new CorpoExcedidoException();
+            return resposta(erro.getStatus(), erro.getMessage(), erro.getCodigo(), request, null);
+        }
         log.error("Erro não tratado ao processar requisição: {}", semDados(ex));
         String mensagem = "Ocorreu um erro inesperado. Tente novamente ou contate o suporte informando o requestId.";
         avisar(HttpStatus.INTERNAL_SERVER_ERROR.value(), null, mensagem, request);
@@ -108,7 +113,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(
             HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        if (causadoPorCorpoExcedido(ex)) {
+        if (LimiteCorpoFilter.causadoPorCorpoExcedido(ex)) {
             return corpoExcedido(request);
         }
         return objeto(HttpStatus.BAD_REQUEST, "Corpo da requisição malformado ou ilegível.", "DADOS_INVALIDOS", request, null);
@@ -170,15 +175,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 log.warn("Ouvinte de erros falhou: {}", falha.getClass().getName());
             }
         }
-    }
-
-    private static boolean causadoPorCorpoExcedido(Throwable ex) {
-        for (Throwable t = ex; t != null; t = t.getCause()) {
-            if (t instanceof LimiteCorpoFilter.CorpoExcedidoIOException) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static HttpServletRequest http(WebRequest request) {

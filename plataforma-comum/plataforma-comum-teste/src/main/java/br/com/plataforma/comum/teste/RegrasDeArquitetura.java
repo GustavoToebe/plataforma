@@ -28,7 +28,8 @@ import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_
  * class ArquiteturaTest {
  *     static JavaClasses codigo = new ClassFileImporter()
  *             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS).importPackages("br.com.app.api");
- *     static final Set<String> SQL_NATIVO = Set.of("ContadorBanco", "BillingService");
+ *     // Nome completo: uma classe de mesmo nome em outro pacote não herda a exceção.
+ *     static final Set<String> SQL_NATIVO = Set.of("br.com.app.api.auth.ContadorBanco", "br.com.app.api.comercial.BillingService");
  *
  *     @Test void controller() { RegrasDeArquitetura.CONTROLLER_SO_FALA_COM_SERVICE.check(codigo); }
  *     @Test void sql() { RegrasDeArquitetura.sqlNativoSoEm(SQL_NATIVO).check(codigo); }
@@ -39,6 +40,28 @@ import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_
 public final class RegrasDeArquitetura {
 
     private static final String REST_CONTROLLER = "org.springframework.web.bind.annotation.RestController";
+    private static final String CONTROLLER = "org.springframework.stereotype.Controller";
+    private static final String REPOSITORIO_SPRING_DATA = "org.springframework.data.repository.Repository";
+    /** Acesso direto ao banco: JDBC do Spring (classes e interfaces) e JDBC cru. */
+    private static final Set<String> JDBC = Set.of(
+            "org.springframework.jdbc.core.JdbcTemplate",
+            "org.springframework.jdbc.core.JdbcOperations",
+            "org.springframework.jdbc.core.simple.JdbcClient",
+            "org.springframework.jdbc.core.simple.SimpleJdbcInsert",
+            "org.springframework.jdbc.core.simple.SimpleJdbcCall",
+            "org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate",
+            "org.springframework.jdbc.core.namedparam.NamedParameterJdbcOperations",
+            "java.sql.Connection",
+            "java.sql.Statement",
+            "java.sql.PreparedStatement");
+    private static final DescribedPredicate<JavaClass> E_JDBC =
+            DescribedPredicate.describe("são de acesso direto ao banco (JDBC)", (JavaClass c) -> JDBC.contains(c.getName()));
+    private static final DescribedPredicate<JavaClass> E_CONTROLLER = DescribedPredicate.describe("são controllers",
+            (JavaClass c) -> c.isAnnotatedWith(REST_CONTROLLER) || c.isAnnotatedWith(CONTROLLER));
+    private static final DescribedPredicate<JavaClass> E_REPOSITORIO = DescribedPredicate.describe(
+            "são repositórios (nome em Repository ou Repositorio, ou do Spring Data)",
+            (JavaClass c) -> c.getSimpleName().endsWith("Repository") || c.getSimpleName().endsWith("Repositorio")
+                    || c.isAssignableTo(REPOSITORIO_SPRING_DATA));
     private static final Set<String> TRANSACTIONAL = Set.of("org.springframework.transaction.annotation.Transactional",
             "jakarta.transaction.Transactional");
     private static final String QUERY = "org.springframework.data.jpa.repository.Query";
@@ -46,18 +69,18 @@ public final class RegrasDeArquitetura {
 
     private RegrasDeArquitetura() { }
 
-    /** Controller não toca repositório, {@code EntityManager} nem JDBC: regra de negócio e transação ficam no service. */
-    public static final ArchRule CONTROLLER_SO_FALA_COM_SERVICE = noClasses().that().areAnnotatedWith(REST_CONTROLLER)
-            .should().dependOnClassesThat().haveSimpleNameEndingWith("Repository")
+    /**
+     * Controller ({@code @RestController} ou {@code @Controller}) não toca repositório (nome em {@code Repository} ou
+     * {@code Repositorio}, ou do Spring Data), {@code EntityManager} nem JDBC: regra de negócio e transação ficam no service.
+     */
+    public static final ArchRule CONTROLLER_SO_FALA_COM_SERVICE = noClasses().that(E_CONTROLLER)
+            .should().dependOnClassesThat(E_REPOSITORIO)
             .orShould().dependOnClassesThat().haveFullyQualifiedName("jakarta.persistence.EntityManager")
-            .orShould().dependOnClassesThat().haveFullyQualifiedName("org.springframework.jdbc.core.JdbcTemplate")
-            .orShould().dependOnClassesThat().haveFullyQualifiedName("org.springframework.jdbc.core.simple.JdbcClient")
-            .orShould().dependOnClassesThat()
-            .haveFullyQualifiedName("org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate")
+            .orShould().dependOnClassesThat(E_JDBC)
             .because("regra de negócio e transação ficam no service");
 
     /** Controller não abre transação, nem na classe nem em método. */
-    public static final ArchRule CONTROLLER_NAO_ABRE_TRANSACAO = noClasses().that().areAnnotatedWith(REST_CONTROLLER)
+    public static final ArchRule CONTROLLER_NAO_ABRE_TRANSACAO = noClasses().that(E_CONTROLLER)
             .should(new ArchCondition<JavaClass>("ter @Transactional na classe ou em método") {
                 @Override
                 public void check(JavaClass classe, ConditionEvents eventos) {
@@ -71,8 +94,8 @@ public final class RegrasDeArquitetura {
             .because("a transação é do service");
 
     /** Nada, fora os próprios controllers, depende de controller. */
-    public static final ArchRule NADA_DEPENDE_DE_CONTROLLER = noClasses().that().areNotAnnotatedWith(REST_CONTROLLER)
-            .should().dependOnClassesThat().areAnnotatedWith(REST_CONTROLLER)
+    public static final ArchRule NADA_DEPENDE_DE_CONTROLLER = noClasses().that(DescribedPredicate.not(E_CONTROLLER))
+            .should().dependOnClassesThat(E_CONTROLLER)
             .because("service e repositório não conhecem a camada web");
 
     /** Jackson 3 ({@code tools.jackson.*}); só as anotações ficam em {@code com.fasterxml.jackson.annotation}. */
@@ -88,18 +111,16 @@ public final class RegrasDeArquitetura {
     public static final ArchRule SEM_SAIDA_PADRAO = NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS;
 
     /**
-     * SQL nativo ({@code JdbcTemplate}, {@code JdbcClient}, {@code createNativeQuery} ou
-     * {@code @Query(nativeQuery = true)}) só nas classes da lista, por nome simples. A lista é o lugar visível da
-     * decisão: entrada nova passa por revisão, com o porquê. Combine com {@link #exigirQueAsExcecoesExistem}.
+     * SQL nativo (JDBC do Spring em qualquer forma, JDBC cru com {@code Connection}/{@code Statement},
+     * {@code createNativeQuery} ou {@code @Query(nativeQuery = true)}) só nas classes da lista, pelo <b>nome completo</b>
+     * ({@code br.com.app.api.auth.ContadorBanco}; classe interna com {@code $}). A lista é o lugar visível da decisão:
+     * entrada nova passa por revisão, com o porquê. Combine com {@link #exigirQueAsExcecoesExistem}.
      */
     public static ArchRule sqlNativoSoEm(Set<String> permitidas) {
         DescribedPredicate<JavaClass> foraDaLista =
-                DescribedPredicate.describe("não estão na lista de SQL nativo permitido", (JavaClass c) -> !permitidas.contains(c.getSimpleName()));
+                DescribedPredicate.describe("não estão na lista de SQL nativo permitido", (JavaClass c) -> !permitidas.contains(c.getName()));
         return noClasses().that(foraDaLista)
-                .should().dependOnClassesThat().haveFullyQualifiedName("org.springframework.jdbc.core.JdbcTemplate")
-                .orShould().dependOnClassesThat().haveFullyQualifiedName("org.springframework.jdbc.core.simple.JdbcClient")
-                .orShould().dependOnClassesThat()
-                .haveFullyQualifiedName("org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate")
+                .should().dependOnClassesThat(E_JDBC)
                 .orShould(chamaConsultaNativa())
                 .orShould(declaraQueryNativa())
                 .because("SQL nativo só onde a lista de exceções permite, cada uma com o porquê");
@@ -132,11 +153,11 @@ public final class RegrasDeArquitetura {
     }
 
     /**
-     * Falha se a lista de exceções cita uma classe que não existe mais (renomeada ou apagada): lista que apodrece
-     * deixa a exceção valendo para outra classe de mesmo nome no futuro.
+     * Falha se a lista de exceções cita uma classe que não existe mais (renomeada ou apagada) ou um nome que não é o
+     * completo: lista que apodrece deixa a exceção valendo para outra classe de mesmo nome no futuro.
      */
     public static void exigirQueAsExcecoesExistem(JavaClasses codigo, String nomeDaLista, Set<String> excecoes) {
-        Set<String> existentes = codigo.stream().map(JavaClass::getSimpleName).collect(Collectors.toSet());
+        Set<String> existentes = codigo.stream().map(JavaClass::getName).collect(Collectors.toSet());
         Set<String> sobrando = excecoes.stream().filter(nome -> !existentes.contains(nome)).collect(Collectors.toCollection(java.util.TreeSet::new));
         if (!sobrando.isEmpty()) {
             throw new AssertionError(nomeDaLista + " cita classes que não existem mais: " + sobrando);

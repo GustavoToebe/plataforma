@@ -65,7 +65,7 @@ public class Autenticador {
 
     /** Emite access e refresh novos para o sujeito (login, ou depois de trocar a senha e encerrar as demais sessões). */
     public Sessao novaSessao(String sujeito, long versao, String ip) {
-        return new Sessao(sujeito, jwt.emitirAcesso(sujeito, versao), jwt.expiraEmSegundos(), refresh.emitir(sujeito, ip));
+        return new Sessao(sujeito, jwt.emitirAcesso(sujeito, versao), jwt.expiraEmSegundos(), refresh.emitir(sujeito, versao, ip));
     }
 
     /** Renovação: troca o refresh (rotação) e emite um access com a versão atual das credenciais. */

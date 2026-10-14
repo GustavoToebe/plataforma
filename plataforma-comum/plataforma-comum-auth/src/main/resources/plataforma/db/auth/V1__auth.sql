@@ -2,6 +2,7 @@
 -- migrations do sistema. "sujeito" é o identificador do usuário no sistema (texto; o módulo não conhece a tabela de usuários).
 
 -- Refresh opaco: só o SHA-256 do token é guardado. Reuso de um token já revogado derruba todas as sessões do sujeito.
+-- "versao" é a versão das credenciais no login: a rotação recusa o token quando a do usuário mudou.
 create table refresh_token (
     id             uuid primary key default gen_random_uuid(),
     sujeito        varchar(120) not null,
@@ -10,7 +11,8 @@ create table refresh_token (
     expira_em      timestamptz  not null,
     revogado_em    timestamptz,
     substituido_por uuid,
-    ip             varchar(64)
+    ip             varchar(64),
+    versao         bigint       not null
 );
 create index ix_refresh_token_sujeito on refresh_token (sujeito);
 create index ix_refresh_token_expira on refresh_token (expira_em);

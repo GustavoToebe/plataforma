@@ -80,6 +80,22 @@ class FiltroContratoTest {
         assertThat(nonces.vistos).containsExactly("central-servire-2026a/5b1f2a0e-8c3d-4f6a-9b7e-1d2c3b4a5f60");
     }
 
+    /** Igual à Central: só {@code v1=} + 64 hex minúsculos; fora disso recusa antes de olhar (e ler) o corpo. */
+    @Test
+    void assinaturaForaDoFormatoEhRecusadaAntesDeOlharOCorpo() throws Exception {
+        for (String assinatura : List.of("v1=xyz", "v1=" + "A".repeat(64), "v1=" + "a".repeat(64) + " extra", "v1=" + "a".repeat(63))) {
+            MockHttpServletRequest request = pedido("POST", "/integracao/v1/instancias", "1790000000",
+                    "5b1f2a0e-8c3d-4f6a-9b7e-1d2c3b4a5f60", assinatura, null);
+            request.setContent(new byte[(1 << 20) + 1]);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            filtro(1790000000L, new NonceEmMemoria()).doFilter(request, response, new MockFilterChain());
+
+            assertThat(response.getStatus()).as(assinatura).isEqualTo(401);
+            assertThat(response.getContentAsString()).contains("ASSINATURA_INVALIDA");
+        }
+    }
+
     @Test
     void vetor2GetSemCorpoNoLimiteDaJanela() throws Exception {
         NonceEmMemoria nonces = new NonceEmMemoria();

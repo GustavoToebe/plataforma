@@ -103,6 +103,40 @@ class ConfiguracaoTest {
         assertThatThrownBy(() -> new CentralClient(chaveRuim, relogio)).isInstanceOf(IllegalStateException.class);
     }
 
+    /**
+     * O prazo da resposta do {@code HttpClient} só cobre a chegada dos cabeçalhos. Uma Central que manda o corpo devagar
+     * prenderia o job de sincronização para sempre: o cliente fecha a leitura quando o prazo acaba.
+     */
+    @Test
+    void corpoDaRespostaQueChegaDevagarRespeitaOPrazo() throws Exception {
+        HttpServer servidor = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        servidor.createContext("/", troca -> {
+            troca.getRequestBody().readAllBytes();
+            troca.sendResponseHeaders(200, 100);
+            try (OutputStream saida = troca.getResponseBody()) {
+                saida.write('{');
+                saida.flush();
+                Thread.sleep(8_000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (java.io.IOException fechadoPeloCliente) {
+                // o cliente desistiu: é o esperado
+            }
+        });
+        servidor.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
+        servidor.start();
+        try {
+            CentralClient cliente = new CentralClient(propriedades("http://127.0.0.1:" + servidor.getAddress().getPort() + "/", 4096,
+                    Duration.ofSeconds(1)), Clock.systemUTC());
+            long inicio = System.nanoTime();
+            assertThatThrownBy(() -> cliente.get("/integracao/v1/qualquer"))
+                    .isInstanceOf(CentralClient.CentralIndisponivelException.class);
+            assertThat(Duration.ofNanos(System.nanoTime() - inicio)).isLessThan(Duration.ofSeconds(5));
+        } finally {
+            servidor.stop(0);
+        }
+    }
+
     @Test
     void clienteEnviaOsCincoCabecalhosComAssinaturaConferivelENonceNovoACadaEnvio() throws Exception {
         AtomicReference<Headers> ultimos = new AtomicReference<>();

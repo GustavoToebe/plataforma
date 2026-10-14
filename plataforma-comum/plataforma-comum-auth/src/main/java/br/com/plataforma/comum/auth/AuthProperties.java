@@ -31,10 +31,13 @@ public record AuthProperties(
      * @param secret         Base64 de pelo menos 32 bytes (exigido quando o módulo está habilitado)
      * @param accessTtl      validade do token de acesso (padrão e máximo aceito: 15 minutos a 1 hora)
      * @param suporteTtlMax  teto da validade do token de suporte
+     * @param emissor        {@code iss} dos tokens, por aplicativo (ex.: {@code central}); exigido com o módulo ligado.
+     *                       Um token de outro aplicativo que por engano use o mesmo segredo não vale aqui.
      */
     public record Jwt(String secret,
                       @DefaultValue("PT15M") Duration accessTtl,
-                      @DefaultValue("PT1H") Duration suporteTtlMax) {
+                      @DefaultValue("PT1H") Duration suporteTtlMax,
+                      String emissor) {
     }
 
     /** @param ttl validade do refresh token (cada rotação começa um novo prazo) */
@@ -76,7 +79,8 @@ public record AuthProperties(
      * @param limiteIp           tentativas por IP na janela
      * @param limiteConta        tentativas por conta na janela
      * @param janelaSegundos     tamanho da janela
-     * @param sal                sal do hash das chaves do contador; vazio = derivado do segredo do JWT
+     * @param sal                sal do hash das chaves do contador, exigido com o módulo ligado e sem valor padrão. Não
+     *                           deriva do segredo do JWT: trocar o segredo zeraria todos os contadores.
      */
     public record Login(@DefaultValue("60") int limiteIp,
                         @DefaultValue("10") int limiteConta,
@@ -106,6 +110,12 @@ public record AuthProperties(
     }
 
     public AuthProperties {
+        if (habilitado && (jwt.emissor() == null || jwt.emissor().isBlank())) {
+            throw new IllegalArgumentException("plataforma.auth.jwt.emissor é obrigatório (um nome por aplicativo).");
+        }
+        if (habilitado && (login.sal() == null || login.sal().isBlank())) {
+            throw new IllegalArgumentException("plataforma.auth.login.sal é obrigatório (segredo do ambiente, sem valor padrão).");
+        }
         validarCookie("plataforma.auth.cookie", cookie.sameSite(), cookie.secure());
         validarCookie("plataforma.auth.csrf", csrf.sameSite(), csrf.secure());
         if (jwt.accessTtl().compareTo(Duration.ofSeconds(30)) < 0 || jwt.accessTtl().compareTo(Duration.ofHours(1)) > 0) {

@@ -5,6 +5,9 @@ import java.time.Instant;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import br.com.plataforma.comum.seguranca.login.ContadorJanelas;
 
@@ -12,6 +15,9 @@ import br.com.plataforma.comum.seguranca.login.ContadorJanelas;
  * Contador de tentativas de login no banco ({@code plataforma.login_tentativa}): vale entre réplicas e sobrevive a reinício. Uma
  * instrução só conta e lê, então tentativas concorrentes não passam do limite. A chave já chega como hash (nenhum e-mail nem IP
  * é gravado em claro).
+ *
+ * <p>Conta numa transação própria ({@code REQUIRES_NEW}): o sistema costuma chamar o login dentro do seu
+ * {@code @Transactional}, e a senha errada (401) desfaz essa transação. Se a contagem fosse junto, o limite nunca dispararia.
  */
 class ContadorBanco implements ContadorJanelas {
 
@@ -24,19 +30,24 @@ class ContadorBanco implements ContadorJanelas {
             """;
 
     private final JdbcTemplate jdbc;
+    private final TransactionTemplate transacaoPropria;
     private final AtomicLong proximaLimpeza = new AtomicLong();
 
-    ContadorBanco(JdbcTemplate jdbc) {
+    ContadorBanco(JdbcTemplate jdbc, PlatformTransactionManager transacoes) {
         this.jdbc = jdbc;
+        this.transacaoPropria = new TransactionTemplate(transacoes);
+        this.transacaoPropria.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Override
     public Estado tentar(String chave, long agoraMs, long janelaMs) {
-        limparSeNecessario(agoraMs);
-        Timestamp agora = Timestamp.from(Instant.ofEpochMilli(agoraMs));
-        Timestamp fim = Timestamp.from(Instant.ofEpochMilli(agoraMs + janelaMs));
-        return jdbc.queryForObject(SQL, (rs, n) -> new Estado(rs.getInt(1), rs.getTimestamp(2).getTime()),
-                chave, fim, agora, agora, fim);
+        return transacaoPropria.execute(status -> {
+            limparSeNecessario(agoraMs);
+            Timestamp agora = Timestamp.from(Instant.ofEpochMilli(agoraMs));
+            Timestamp fim = Timestamp.from(Instant.ofEpochMilli(agoraMs + janelaMs));
+            return jdbc.queryForObject(SQL, (rs, n) -> new Estado(rs.getInt(1), rs.getTimestamp(2).getTime()),
+                    chave, fim, agora, agora, fim);
+        });
     }
 
     /** Remove janelas vencidas há mais de uma hora, no máximo uma vez por minuto por processo. */
