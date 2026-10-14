@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      POM pai dos backends da plataforma. Fixa o que tem de ser igual em todos: Java 25, Spring Boot, Error Prone,
+      JaCoCo, Surefire/Failsafe, Testcontainers com Postgres e as versões dos plugins. Subir o Spring Boot é mudar
+      uma linha aqui; cada app adota a versão nova quando quiser (a versão do parent é sempre fixa no app).
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.1</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>br.com.plataforma</groupId>
+    <artifactId>plataforma-parent</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>plataforma-parent</name>
+    <description>POM pai dos backends da plataforma (Java 25, Spring Boot 4, qualidade automática).</description>
+
+    <properties>
+        <java.version>25</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <archunit.version>1.5.1</archunit.version>
+        <jacoco.version>0.8.15</jacoco.version>
+        <errorprone.version>2.50.0</errorprone.version>
+
+        <!-- Cobertura mínima do módulo (JaCoCo, no verify). Cada app sobe a sua junto com a cobertura medida. -->
+        <cobertura.minima.linhas>0.70</cobertura.minima.linhas>
+        <cobertura.minima.desvios>0.00</cobertura.minima.desvios>
+
+        <!--
+          Regras do Error Prone que valem como erro além do conjunto básico. Um app que ainda não cumpre alguma
+          sobrescreve esta propriedade (ex.: vazia) até corrigir; nunca edita o parent por isso.
+        -->
+        <errorprone.regras.extras>-Xep:NonApiType:ERROR -Xep:BoxingComparator:ERROR -Xep:CanonicalDuration:ERROR</errorprone.regras.extras>
+
+        <!--
+          Imagem do Postgres dos testes de integração. Os testes leem a propriedade de sistema
+          plataforma.postgres.imagem (repassada pelo Surefire e pelo Failsafe).
+        -->
+        <plataforma.postgres.imagem>postgres:18-alpine</plataforma.postgres.imagem>
+
+        <!-- O JaCoCo põe o agente em argLine; argumentos da máquina (ex.: Windows) vão em argumentosLocais. -->
+        <argLine></argLine>
+        <argumentosLocais></argumentosLocais>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
+                <version>${archunit.version}</version>
+                <scope>test</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <configuration>
+                        <argLine>@{argLine} ${argumentosLocais}</argLine>
+                        <systemPropertyVariables>
+                            <plataforma.postgres.imagem>${plataforma.postgres.imagem}</plataforma.postgres.imagem>
+                        </systemPropertyVariables>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+
+        <plugins>
+            <!--
+              Error Prone: análise estática na compilação. Padrão de bug vira erro de compilação; aviso aparece no
+              log. Precisa das aberturas do javac em .mvn/jvm.config, que cada projeto que herda este parent copia.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <compilerArgs combine.children="append">
+                        <arg>-XDcompilePolicy=simple</arg>
+                        <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+                        <arg>--should-stop=ifError=FLOW</arg>
+                        <arg>-Xplugin:ErrorProne -XepDisableWarningsInGeneratedCode -Xep:NotJavadoc:OFF -Xep:MissingSummary:OFF -Xep:StringSplitter:OFF -Xep:StringCaseLocaleUsage:ERROR -Xep:DefaultCharset:ERROR -Xep:JavaTimeDefaultTimeZone:ERROR -Xep:ReferenceEquality:ERROR -Xep:FutureReturnValueIgnored:ERROR -Xep:MissingOverride:ERROR -Xep:EmptyCatch:ERROR -Xep:UnusedVariable:ERROR -Xep:UnusedMethod:ERROR -Xep:OperatorPrecedence:ERROR -Xep:EnumOrdinal:ERROR -Xep:AlreadyChecked:ERROR -Xep:ArrayRecordComponent:ERROR -Xep:LoopOverCharArray:ERROR -Xep:InputStreamSlowMultibyteRead:ERROR ${errorprone.regras.extras}</arg>
+                    </compilerArgs>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>com.google.errorprone</groupId>
+                            <artifactId>error_prone_core</artifactId>
+                            <version>${errorprone.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>@{argLine} ${argumentosLocais}</argLine>
+                    <systemPropertyVariables>
+                        <plataforma.postgres.imagem>${plataforma.postgres.imagem}</plataforma.postgres.imagem>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <!--
+              JaCoCo: relatório em target/site/jacoco/index.html depois do `mvn verify`. O mínimo impede regressão
+              sem travar quem está trabalhando; suba-o junto com a cobertura medida.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <executions>
+                    <execution>
+                        <id>agente</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>relatorio</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>minimo</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>${cobertura.minima.linhas}</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>${cobertura.minima.desvios}</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/GustavoToebe/plataforma</url>
+        </repository>
+    </distributionManagement>
+</project>
