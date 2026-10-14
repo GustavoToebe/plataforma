@@ -20,6 +20,10 @@ public class Autenticador {
     private static final String TOKEN_RECUSADO = "Token recusado.";
 
     /** @param refreshToken valor bruto, para o cookie; nunca vai para o corpo se o cliente for web */
+    /** Quem passou na senha e no segundo fator: sem o hash da senha, para o sistema poder carregar o valor adiante com segurança. */
+    public record Identidade(String sujeito, long versao) {
+    }
+
     public record Sessao(String sujeito, String accessToken, long expiraEmSegundos, String refreshToken) {
         @Override
         public String toString() {
@@ -53,8 +57,8 @@ public class Autenticador {
      * @throws MfaException                                                  com {@code MFA_NECESSARIO} ou {@code MFA_CODIGO_INVALIDO}
      */
     public Sessao entrar(String login, String senha, String codigoMfa, String ip) {
-        UsuariosDaAutenticacao.Credencial credencial = verificarCredenciais(login, senha, codigoMfa, ip);
-        return novaSessao(credencial.sujeito(), credencial.versao(), ip);
+        Identidade identidade = verificarCredenciais(login, senha, codigoMfa, ip);
+        return novaSessao(identidade.sujeito(), identidade.versao(), ip);
     }
 
     /**
@@ -62,7 +66,7 @@ public class Autenticador {
      * que fazer em seguida (escolher a paróquia, por exemplo) antes de chamar {@link #novaSessao(String, long, String, Map)}.
      * Mesmas garantias de {@link #entrar}: a mesma mensagem para usuário inexistente, senha errada e usuário inativo.
      */
-    public UsuariosDaAutenticacao.Credencial verificarCredenciais(String login, String senha, String codigoMfa, String ip) {
+    public Identidade verificarCredenciais(String login, String senha, String codigoMfa, String ip) {
         limite.registrar(ip, login);
         Optional<UsuariosDaAutenticacao.Credencial> encontrado = usuarios.buscarPorLogin(login);
         String hash = encontrado.map(UsuariosDaAutenticacao.Credencial::senhaHash).orElseGet(this::hashFalso);
@@ -72,7 +76,7 @@ public class Autenticador {
         }
         UsuariosDaAutenticacao.Credencial credencial = encontrado.get();
         mfa.verificarLogin(credencial.sujeito(), codigoMfa);
-        return credencial;
+        return new Identidade(credencial.sujeito(), credencial.versao());
     }
 
     /** Emite access e refresh novos para o sujeito (login, ou depois de trocar a senha e encerrar as demais sessões). */
@@ -94,11 +98,18 @@ public class Autenticador {
      * Renovação em que o sistema decide os claims do novo acesso (a paróquia pedida, o papel no vínculo...). A função roda
      * <b>dentro</b> da transação da rotação, depois de o token, o usuário e a versão das credenciais terem sido conferidos e antes
      * de o refresh novo ser gravado. Se ela lançar (um 403 por falta de vínculo, por exemplo), a rotação inteira é desfeita: o
-     * refresh antigo continua válido e isso não conta como reuso. Não deve chamar este mesmo serviço nem demorar (a trava do
+     * refresh antigo continua válido e isso não conta como reuso (vale também para claims que o JWT não aceita, conferidos aqui). Não deve chamar este mesmo serviço nem demorar (a trava do
      * sujeito está presa).
      */
     public Sessao renovar(String refreshBruto, String ip, Function<String, Map<String, ?>> extrasDoSujeito) {
-        RefreshTokens.Rotacao rotacao = refresh.rotacionar(refreshBruto, ip, extrasDoSujeito);
+        // Os claims são conferidos ainda dentro da transação: um valor que o JWT não aceita (UUID, enum...) desfaz a rotação em vez
+        // de estourar depois do commit, com o cliente sem o refresh novo e o antigo já revogado.
+        RefreshTokens.Rotacao rotacao = refresh.rotacionar(refreshBruto, ip, sujeito -> {
+            Map<String, ?> extras = extrasDoSujeito.apply(sujeito);
+            Map<String, ?> conferidos = extras == null ? Map.of() : extras;
+            jwt.conferirExtras(conferidos);
+            return conferidos;
+        });
         return new Sessao(rotacao.sujeito(), jwt.emitirAcesso(rotacao.sujeito(), rotacao.versao(), rotacao.extras()),
                 jwt.expiraEmSegundos(), rotacao.refreshToken());
     }

@@ -193,7 +193,7 @@ class AuthIntegrationTest {
 
     @Test
     void verificarCredenciaisConfereSenhaELimiteMasNaoAbreSessao() {
-        UsuariosDaAutenticacao.Credencial credencial = autenticador.verificarCredenciais("ana@x.com", "segredo-da-ana", null, "10.0.8.1");
+        Autenticador.Identidade credencial = autenticador.verificarCredenciais("ana@x.com", "segredo-da-ana", null, "10.0.8.1");
         assertThat(credencial.sujeito()).isEqualTo("ana");
         assertThat(credencial.versao()).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from plataforma.refresh_token", Integer.class)).isZero();
@@ -236,6 +236,19 @@ class AuthIntegrationTest {
         assertThat(autenticador.autenticar(nova.accessToken()).sujeito()).isEqualTo("ana");
         // Agora sim, o antigo foi gasto: reusá-lo é reuso.
         assertThatThrownBy(() -> autenticador.renovar(sessao.refreshToken(), "10.0.8.4")).isInstanceOf(UnauthorizedException.class);
+    }
+
+    /** Claim que o JWT não aceita (UUID): a renovação falha antes do commit e o cliente continua com o refresh antigo. */
+    @Test
+    void claimInvalidoDoSistemaNaRenovacaoNaoGastaORefreshAntigo() {
+        Autenticador.Sessao sessao = autenticador.entrar("ana@x.com", "segredo-da-ana", null, "10.0.8.5");
+        assertThatThrownBy(() -> autenticador.renovar(sessao.refreshToken(), "10.0.8.5",
+                sujeito -> java.util.Map.of("tenant", java.util.UUID.randomUUID())))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> autenticador.renovar(sessao.refreshToken(), "10.0.8.5", sujeito -> java.util.Map.of("cv", 1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(jdbc.queryForObject("select count(*) from plataforma.refresh_token where revogado_em is null", Integer.class)).isEqualTo(1);
+        assertThat(autenticador.autenticar(autenticador.renovar(sessao.refreshToken(), "10.0.8.5").accessToken()).sujeito()).isEqualTo("ana");
     }
 
     @Test

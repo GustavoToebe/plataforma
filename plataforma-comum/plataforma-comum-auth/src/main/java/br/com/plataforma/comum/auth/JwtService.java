@@ -108,6 +108,11 @@ public final class JwtService {
         return emitir(proposito, sujeito, versao, ttl, null, null, extras);
     }
 
+    /** Confere os claims do sistema sem emitir nada: nomes reservados e tipos aceitos (a mesma regra de {@code emitirAcesso}). */
+    void conferirExtras(Map<String, ?> extras) {
+        extras.forEach(JwtService::validarExtra);
+    }
+
     boolean propositoDoAplicativo(String proposito) {
         return config.propositos().containsKey(proposito);
     }
