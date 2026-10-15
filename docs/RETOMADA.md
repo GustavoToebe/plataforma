@@ -20,17 +20,22 @@
   - `teste`: repositório em português e do Spring Data, `@Controller`, mais formas de JDBC (inclusive cru), lista de exceções por nome completo, caso de falha do `JACKSON_TRES`.
 
 - **1.7.0** (tag `v1.7.0`, PR sobre a `main`; só acréscimos para a Fase 5): `LimiteLoginException.primeiroBloqueio()`; propósitos do aplicativo (`plataforma.auth.jwt.propositos`, `JwtService.emitir`, `Autenticador.autenticarComo`); `Autenticador.verificarCredenciais`, `novaSessao(..., extras)` e `renovar(refresh, ip, extrasDoSujeito)` (a função roda na transação da rotação; exceção desfaz); `emitirSuporte(..., extras)`; `UsuariosDaAutenticacao.versaoDeSuporte`. Nada que existia mudou de comportamento (o construtor do record `AuthProperties.Jwt` ganhou o componente `propositos`).
-- **1.8.0** (PR sobre a `main`, tag só depois da revisão; só acréscimo): `Mfa.renovarRecuperacao(sujeito, codigo)`, que o botão "Gerar novos códigos" do Servirea usa.
+- **1.8.0** (tag `v1.8.0`; só acréscimo): `Mfa.renovarRecuperacao(sujeito, codigo)`, que o botão "Gerar novos códigos" do Servirea usa.
 
-- **`@plataforma/web` 0.1.0** (pasta `web/`, tag `web-v0.1.0` só depois da revisão; PR sobre a `main`): TypeScript puro para os fronts, fora do reator Maven. `destino-api`, `formatos` (as regras do `Formatos.java`, sem RG e sexo), `erros` (`ErroApi`, `mensagemApi`), `autenticacao` (refresh compartilhado, XSRF só em escrita, desistir só com 401/403) e `tokens` (os 3 pilares do design). Release do GitHub com o `.tgz`, sem token. O `consultoria-app` adota na sequência; os fronts Angular adotam depois.
+- **1.9.0** (PR sobre a `main`, tag só depois da revisão; só acréscimo, tudo desligado por padrão): e-mail e redefinição de senha no módulo `auth` (Fase 8, parte 1).
+  - `EnviadorDeEmail` (Resend por HTTP ou `log`, que nunca registra destinatário, link nem token) e `EmailsDeAcesso` (redefinição e convite: só o link e um texto fixo; remetente e nome do app vêm de `plataforma.auth.email.*`).
+  - `RedefinicaoDeSenha`: `solicitar` (resposta igual exista ou não a conta, trabalho num `DespachoDeEmail`, limite por IP e por e-mail), `redefinir` (uso único, prazo de 30 min, MFA obrigatório quando ativo, limite por link, sobe a versão das credenciais pela função do sistema e encerra as sessões) e `emitirConvite` (token com prazo do app, para o Servirea largar a tabela própria). Link com o token no fragmento. Migration `V2__redefinicao_token.sql` no schema `plataforma`.
+  - Decisões e uso: README, "Módulo auth". Nenhum campo novo em `AuthProperties` e nenhum método novo em `UsuariosDaAutenticacao`: quem não liga `plataforma.auth.email.habilitado` e `plataforma.auth.redefinicao.habilitado` não percebe a versão.
 
-Versão publicada não muda: correção vira versão nova. Os sistemas adotam os módulos a partir da 1.6.0 (a Fase 5 usa a 1.7.0 e, no Servirea, a 1.8.0; as 1.1.0–1.5.0 ficam publicadas, sem uso).
+- **`@plataforma/web` 0.1.0** (pasta `web/`, tag `web-v0.1.0`): TypeScript puro para os fronts, fora do reator Maven. `destino-api`, `formatos` (as regras do `Formatos.java`, sem RG e sexo), `erros` (`ErroApi`, `mensagemApi`), `autenticacao` (refresh compartilhado, XSRF só em escrita, desistir só com 401/403) e `tokens` (os 3 pilares do design). Release do GitHub com o `.tgz`, sem token. O `consultoria-app` adota na sequência; os fronts Angular adotam depois.
+
+Versão publicada não muda: correção vira versão nova. Os sistemas adotam os módulos a partir da 1.6.0 (a Fase 5 usa a 1.7.0 e, no Servirea, a 1.8.0; a Fase 8 usa a 1.9.0; as 1.1.0–1.5.0 ficam publicadas, sem uso).
 
 ## Uso pelos sistemas
 Central e Servirea adotam o parent e a `plataforma-comum-seguranca` na Fase 4. Em cada um ficam o `ContadorBanco` (implementa `ContadorJanelas`), o bean Spring do limitador (limites vindos da configuração do sistema) e o `@ExceptionHandler` que mapeia `LimiteLoginException` para HTTP 429 com o código `LOGIN_LIMITADO`. O `Retry-After` é posto pelos controllers de login e de MFA.
 
 ## Próximos módulos (um por vez, cada um num pull request empilhado)
-~~`web`~~ (1.1.0) → ~~`monitoramento`~~ (1.2.0) → ~~`teste`~~ (1.3.0) → ~~`auth`~~ (1.4.0) → ~~`central`~~ (1.5.0). Extraídos da Central (a referência mais testada); o `central` compara Servirea e consultoria-app contra `docs/contrato-integracao-v1.md` da Central. Central e Servirea só adotam depois da revisão do Gustavo.
+~~`web`~~ (1.1.0) → ~~`monitoramento`~~ (1.2.0) → ~~`teste`~~ (1.3.0) → ~~`auth`~~ (1.4.0) → ~~`central`~~ (1.5.0). Extraídos da Central (a referência mais testada); o `central` compara Servirea e consultoria-app contra `docs/contrato-integracao-v1.md` da Central. Todos os módulos já estão publicados; cada sistema adota o que precisa, na versão que a fase dele pede.
 
 ## Validação
-`mvn verify` na raiz, com o JDK 25 (9 testes no módulo de segurança). A publicação usa só o `GITHUB_TOKEN` do Actions, pela tag.
+`mvn verify` na raiz, com o JDK 25 (Docker ligado: os testes dos módulos sobem o Postgres). O auth também roda no Postgres 17 de produção: `-Dplataforma.postgres.imagem=postgres:17-alpine`. A publicação usa só o `GITHUB_TOKEN` do Actions, pela tag.
