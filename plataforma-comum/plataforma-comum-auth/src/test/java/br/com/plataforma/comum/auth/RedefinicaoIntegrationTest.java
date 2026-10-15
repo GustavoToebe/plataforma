@@ -277,6 +277,42 @@ class RedefinicaoIntegrationTest {
     }
 
     @Test
+    void senhaAcimaDe72BytesDa400EOLinkContinuaValendo() {
+        redefinicao.solicitar("ana@x.com", "10.0.0.1", RedefinicaoIntegrationTest::buscar);
+        String token = ultimoToken();
+        // 37 letras "é" = 74 bytes em UTF-8 (37 caracteres): o hash recusaria, e a recusa tem que ser 400, não 500.
+        String longa = "é".repeat(37);
+
+        assertThatThrownBy(() -> redefinir(token, longa, null))
+                .isInstanceOfSatisfying(RedefinicaoException.class, e -> assertThat(e.getCodigo()).isEqualTo("SENHA_LONGA"));
+        assertThat(trocas).hasValue(0);
+        redefinir(token, "nova-senha-1", null);
+        assertThat(trocas).hasValue(1);
+    }
+
+    @Test
+    void regraDeSenhaDoAppRecusaSemGastarOCodigoDeRecuperacaoNemOLink() {
+        Mfa.Preparacao preparacao = mfa.preparar("ana");
+        Mfa.Recuperacao recuperacao = mfa.ativar("ana", TotpDeTeste.codigo(preparacao.segredo(), AppDeTeste.RELOGIO.instant()));
+        redefinicao.solicitar("ana@x.com", "10.0.0.1", RedefinicaoIntegrationTest::buscar);
+        String token = ultimoToken();
+        String codigo = recuperacao.codigos().get(0);
+
+        assertThatThrownBy(() -> redefinicao.redefinir(token, "curta", codigo, "10.0.0.1", (sujeito, senha) -> {
+            assertThat(sujeito).isEqualTo("ana");
+            throw new IllegalArgumentException("A senha precisa ter pelo menos 8 caracteres.");
+        }, troca())).isInstanceOf(IllegalArgumentException.class);
+        // A troca falhar depois do MFA também desfaz o consumo do código de recuperação.
+        assertThatThrownBy(() -> redefinicao.redefinir(token, "nova-senha-1", codigo, "10.0.0.1", (sujeito, hash) -> {
+            throw new IllegalStateException("banco do sistema caiu");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(trocas).hasValue(0);
+
+        redefinir(token, "nova-senha-1", codigo);
+        assertThat(trocas).hasValue(1);
+    }
+
+    @Test
     void comMfaAtivoRedefinirExigeOCodigoELinkErradoNaoTrocaNada() {
         Mfa.Preparacao preparacao = mfa.preparar("ana");
         mfa.ativar("ana", TotpDeTeste.codigo(preparacao.segredo(), AppDeTeste.RELOGIO.instant()));

@@ -20,6 +20,11 @@ public class RedefinicaoException extends ApiException {
         return new RedefinicaoException(HttpStatus.BAD_REQUEST, "Link inválido ou expirado. Peça um novo.", "LINK_INVALIDO");
     }
 
+    static RedefinicaoException senhaLonga() {
+        return new RedefinicaoException(HttpStatus.BAD_REQUEST, "A senha pode ter no máximo 72 bytes (cerca de 72 letras sem acento).",
+                "SENHA_LONGA");
+    }
+
     static RedefinicaoException senhaObrigatoria() {
         return new RedefinicaoException(HttpStatus.BAD_REQUEST, "Informe a nova senha.", "SENHA_OBRIGATORIA");
     }

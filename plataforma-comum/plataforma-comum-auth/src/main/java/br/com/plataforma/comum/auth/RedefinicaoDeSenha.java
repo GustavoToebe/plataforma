@@ -60,6 +60,15 @@ public class RedefinicaoDeSenha {
         void trocar(String sujeito, String novoHash);
     }
 
+    /**
+     * Regra de senha do app (tamanho mínimo, "diferente do e-mail"...), chamada na transação com o sujeito e a senha em texto,
+     * depois de conferir o link e antes do MFA e do hash. Lança a exceção do próprio app para recusar; o link continua valendo.
+     */
+    @FunctionalInterface
+    public interface RegraDeSenha {
+        void validar(String sujeito, String novaSenha);
+    }
+
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transacao;
     private final RedefinicaoProperties propriedades;
@@ -174,11 +183,23 @@ public class RedefinicaoDeSenha {
      * @throws br.com.plataforma.comum.seguranca.login.LimiteLoginException se o IP ou o link passou do limite
      */
     public void redefinir(String tokenBruto, String novaSenha, String codigoMfa, String ip, TrocaDeSenha troca) {
+        redefinir(tokenBruto, novaSenha, codigoMfa, ip, (sujeito, senha) -> { }, troca);
+    }
+
+    /**
+     * Como {@link #redefinir(String, String, String, String, TrocaDeSenha)}, com a {@code regra} de senha do app. O módulo só
+     * garante o que o hash exige: no máximo 72 bytes ({@code SENHA_LONGA}, 400).
+     */
+    public void redefinir(String tokenBruto, String novaSenha, String codigoMfa, String ip, RegraDeSenha regra,
+                          TrocaDeSenha troca) {
         if (tokenBruto == null || tokenBruto.isBlank() || tokenBruto.length() > 200) {
             throw RedefinicaoException.linkInvalido();
         }
         if (novaSenha == null || novaSenha.isBlank()) {
             throw RedefinicaoException.senhaObrigatoria();
+        }
+        if (novaSenha.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
+            throw RedefinicaoException.senhaLonga();
         }
         String hash = TokenOpaco.hash(tokenBruto.trim());
         List<String> encontrados = jdbc.queryForList("select sujeito from plataforma.redefinicao_token where token_hash = ?",
@@ -199,6 +220,8 @@ public class RedefinicaoDeSenha {
             if (validade.isEmpty() || !validade.get(0).toInstant().isAfter(agora) || usuarios.versaoDeCredenciais(dono).isEmpty()) {
                 throw RedefinicaoException.linkInvalido();
             }
+            // A regra de senha vem antes do MFA: recusar a senha nunca gasta código de recuperação nem tentativa do MFA.
+            regra.validar(dono, novaSenha);
             mfa.verificarLogin(dono, codigoMfa);
             troca.trocar(dono, senhas.encode(novaSenha));
             jdbc.update("delete from plataforma.redefinicao_token where sujeito = ?", dono);
