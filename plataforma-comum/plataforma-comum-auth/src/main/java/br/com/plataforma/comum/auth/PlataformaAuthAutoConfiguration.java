@@ -130,7 +130,7 @@ public class PlataformaAuthAutoConfiguration {
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "plataforma.auth.redefinicao", name = "habilitado", havingValue = "true")
     public DespachoDeEmail plataformaDespachoDeEmail() {
-        return tarefa -> Thread.ofVirtual().name("plataforma-email").start(tarefa);
+        return new DespachoVirtual();
     }
 
     /** Redefinição de senha e convite (1.9.0), só com {@code plataforma.auth.redefinicao.habilitado=true} (e o e-mail ligado). */

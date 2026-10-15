@@ -30,10 +30,10 @@ import br.com.plataforma.comum.seguranca.login.LimiteLogin;
  *       um novo invalida os anteriores da mesma finalidade. O link leva o token no fragmento ({@code #token=...}).</li>
  *   <li><b>Sem enumeração</b>: {@link #solicitar} responde igual exista ou não a conta, sem esperar o envio, e uma falha de envio
  *       não chega ao chamador (só a classe da exceção vai para o log).</li>
- *   <li><b>Limites</b> por IP e por e-mail (pedido) e por IP e por link (confirmação), no banco, com contadores próprios que não
+ *   <li><b>Limites</b> por IP e por e-mail (pedido) e por IP e por conta (confirmação), no banco, com contadores próprios que não
  *       se misturam com os do login. O {@code LimiteLoginException} traz o {@code Retry-After}; o controller o põe no cabeçalho.</li>
  *   <li><b>MFA nunca é contornado</b>: com MFA ativo, {@link #redefinir} exige o código (do aplicativo ou de recuperação). O limite
- *       por link trava a adivinhação do código de 6 dígitos.</li>
+ *       por conta (todos os links dela somados) trava a adivinhação do código de 6 dígitos.</li>
  *   <li>Redefinir sobe a versão das credenciais (a troca do sistema) e encerra todas as sessões; os access tokens antigos deixam de
  *       valer porque o {@code cv} deles não confere mais.</li>
  * </ul>
@@ -83,7 +83,7 @@ public class RedefinicaoDeSenha {
         // Chaves próprias (sal derivado): pedir a redefinição não gasta o limite de login de ninguém, nem o contrário.
         this.limitePedido = new LimiteLogin(propriedades.limiteIp(), propriedades.limiteEmail(), propriedades.janelaSegundos(),
                 contador, relogio, sal + ":redefinicao-pedido");
-        this.limiteConfirmacao = new LimiteLogin(propriedades.limiteIp(), propriedades.limiteToken(), propriedades.janelaSegundos(),
+        this.limiteConfirmacao = new LimiteLogin(propriedades.limiteIp(), propriedades.limiteConta(), propriedades.janelaSegundos(),
                 contador, relogio, sal + ":redefinicao-confirmacao");
         this.mfa = mfa;
         this.refresh = refresh;
@@ -164,7 +164,8 @@ public class RedefinicaoDeSenha {
      * Define a nova senha com o token do link (redefinição ou convite). Numa transação só: confere o link (uso único, prazo,
      * conta ativa), o código do MFA quando ele está ativo, grava a senha pela {@code troca} (que sobe a versão das credenciais) e
      * apaga os links do sujeito. Se o MFA falha, nada muda e o link continua valendo para outra tentativa (dentro do limite por
-     * link). Depois do commit, encerra todas as sessões.
+     * conta). Depois do commit, encerra todas as sessões. Chame <b>fora</b> de transação, como {@code entrar}: dentro de uma, o
+     * "depois do commit" é o da transação de fora e as sessões só caem ali (os access tokens antigos já caem pelo {@code cv}).
      *
      * @param tokenBruto o que veio depois de {@code #token=}
      * @param novaSenha  a regra de tamanho e força é do sistema (o módulo só exige que exista)
@@ -180,10 +181,12 @@ public class RedefinicaoDeSenha {
             throw RedefinicaoException.senhaObrigatoria();
         }
         String hash = TokenOpaco.hash(tokenBruto.trim());
-        limiteConfirmacao.registrar(ip, hash);
+        List<String> encontrados = jdbc.queryForList("select sujeito from plataforma.redefinicao_token where token_hash = ?",
+                String.class, hash);
+        // O orçamento de tentativas é da conta, não do link: quem controla a caixa de e-mail pede links novos, e se cada um
+        // trouxesse tentativas novas o código de 6 dígitos do MFA seria adivinhável aos poucos. Link desconhecido só gasta o IP.
+        limiteConfirmacao.registrar(ip, encontrados.isEmpty() ? "t:" + hash : "s:" + encontrados.get(0));
         String sujeito = transacao.execute(status -> {
-            List<String> encontrados = jdbc.queryForList("select sujeito from plataforma.redefinicao_token where token_hash = ?",
-                    String.class, hash);
             if (encontrados.isEmpty()) {
                 throw RedefinicaoException.linkInvalido();
             }

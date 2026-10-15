@@ -53,7 +53,7 @@ import br.com.plataforma.comum.web.UnauthorizedException;
         "plataforma.auth.redefinicao.url-base=https://app.exemplo.test/redefinir-senha",
         "plataforma.auth.redefinicao.limite-ip=1000",
         "plataforma.auth.redefinicao.limite-email=3",
-        "plataforma.auth.redefinicao.limite-token=4",
+        "plataforma.auth.redefinicao.limite-conta=4",
         "spring.main.banner-mode=off"
 })
 class RedefinicaoIntegrationTest {
@@ -327,6 +327,36 @@ class RedefinicaoIntegrationTest {
         assertThatThrownBy(() -> redefinir(token, "nova-senha-1", certo))
                 .isInstanceOfSatisfying(LimiteLoginException.class, e -> assertThat(e.segundos()).isPositive());
         assertThat(trocas).hasValue(0);
+    }
+
+    @Test
+    void linksNovosNaoRenovamOOrcamentoDeTentativasDaConta() {
+        Mfa.Preparacao preparacao = mfa.preparar("ana");
+        mfa.ativar("ana", TotpDeTeste.codigo(preparacao.segredo(), AppDeTeste.RELOGIO.instant()));
+        redefinicao.solicitar("ana@x.com", "10.0.0.1", RedefinicaoIntegrationTest::buscar);
+        String primeiro = ultimoToken();
+        for (int i = 0; i < 3; i++) {
+            assertThatThrownBy(() -> redefinir(primeiro, "nova-senha-1", "111111")).isInstanceOf(MfaException.class);
+        }
+        // Um link novo (a caixa de e-mail é de quem chuta) segue no mesmo orçamento: sobra 1 tentativa, não 4.
+        redefinicao.solicitar("ana@x.com", "10.0.0.1", RedefinicaoIntegrationTest::buscar);
+        String segundo = ultimoToken();
+        assertThatThrownBy(() -> redefinir(segundo, "nova-senha-1", "222222")).isInstanceOf(MfaException.class);
+        AppDeTeste.RELOGIO.avancar(Duration.ofSeconds(31));
+        String certo = TotpDeTeste.codigo(preparacao.segredo(), AppDeTeste.RELOGIO.instant());
+        assertThatThrownBy(() -> redefinir(segundo, "nova-senha-1", certo)).isInstanceOf(LimiteLoginException.class);
+        assertThat(trocas).hasValue(0);
+    }
+
+    @Test
+    void linksDesconhecidosGastamSoOIpENaoOOrcamentoDeContaNenhuma() {
+        for (int i = 0; i < 6; i++) {
+            int n = i;
+            assertThatThrownBy(() -> redefinir("chute-" + n, "nova-senha-1", null)).isInstanceOf(RedefinicaoException.class);
+        }
+        redefinicao.solicitar("ana@x.com", "10.0.0.1", RedefinicaoIntegrationTest::buscar);
+        redefinir(ultimoToken(), "nova-senha-1", null);
+        assertThat(trocas).hasValue(1);
     }
 
     @Test
