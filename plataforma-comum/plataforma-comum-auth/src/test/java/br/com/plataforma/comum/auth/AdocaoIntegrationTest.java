@@ -80,6 +80,11 @@ class AdocaoIntegrationTest {
                     + "('x', repeat('a', 64), now() + interval '1 day', 1)");
             assertThat(s.executeQuery("select count(*) from plataforma.refresh_token").next()).isTrue();
             s.execute("delete from plataforma.refresh_token where sujeito = 'x'");
+            // A tabela da redefinição (V2) entra nos grants da mesma subida: o papel de execução lê e escreve nela.
+            s.execute("insert into plataforma.redefinicao_token (sujeito, finalidade, token_hash, expira_em) values "
+                    + "('x', 'CONVITE', repeat('b', 64), now() + interval '1 day')");
+            assertThat(s.executeQuery("select count(*) from plataforma.redefinicao_token").next()).isTrue();
+            s.execute("delete from plataforma.redefinicao_token where sujeito = 'x'");
             assertThatThrownBy(() -> s.execute("create table plataforma.intruso (id int)")).isInstanceOf(SQLException.class);
             assertThatThrownBy(() -> s.execute("drop table plataforma.refresh_token")).isInstanceOf(SQLException.class);
             assertThatThrownBy(() -> s.execute("delete from plataforma.historico_migracao")).isInstanceOf(SQLException.class);
