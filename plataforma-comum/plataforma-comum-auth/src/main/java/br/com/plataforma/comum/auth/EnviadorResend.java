@@ -43,8 +43,9 @@ final class EnviadorResend implements EnviadorDeEmail {
     }
 
     /**
-     * Sem nome nem remetente próprio, o {@code from} da configuração, sem mudar um byte. Com nome: {@code "<nome> via <app> <endereço>"}.
-     * Só com remetente próprio: o nome de exibição da configuração (se houver) com o endereço novo.
+     * Sem nome nem remetente próprio, o {@code from} da configuração, sem mudar um byte. Com nome: {@code "<nome> via <app>" <endereço>}
+     * (o nome de exibição vai entre aspas, para vírgula, dois-pontos ou {@code @} não quebrarem o cabeçalho). Só com remetente
+     * próprio: o nome de exibição da configuração (se houver, como o operador o escreveu) com o endereço novo.
      */
     private String de(Mensagem mensagem) {
         if (mensagem.nomeRemetente() == null && mensagem.remetente() == null) {
@@ -56,7 +57,9 @@ final class EnviadorResend implements EnviadorDeEmail {
         String endereco = mensagem.remetente() != null ? mensagem.remetente()
                 : comNome ? remetente.substring(abre + 1, fecha).trim() : remetente.trim();
         if (mensagem.nomeRemetente() != null) {
-            return mensagem.nomeRemetente() + " via " + nomeApp + " <" + endereco + ">";
+            // O nome da Mensagem já não tem \ nem "; o nomeApp vem da configuração e pode ter.
+            String nomeCompleto = (mensagem.nomeRemetente() + " via " + nomeApp).replace("\\", "\\\\").replace("\"", "\\\"");
+            return "\"" + nomeCompleto + "\" <" + endereco + ">";
         }
         String exibicao = comNome ? remetente.substring(0, abre).trim() : "";
         return exibicao.isEmpty() ? endereco : exibicao + " <" + endereco + ">";

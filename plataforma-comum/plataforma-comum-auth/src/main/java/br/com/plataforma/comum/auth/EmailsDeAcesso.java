@@ -10,7 +10,10 @@ import java.util.regex.Pattern;
  */
 public class EmailsDeAcesso {
 
-    private static final Pattern ENDERECO = Pattern.compile("[^\\s@<>,;\"']{1,64}@[^\\s@<>,;\"']{1,190}\\.[^\\s@<>,;\"']{2,63}");
+    // \p{Cc} (controle, inclui U+0085), \p{Cf} (formatação) e \p{Zl}/\p{Zp} (separadores de linha e de parágrafo) fora das três partes.
+    private static final Pattern ENDERECO = Pattern.compile(
+            "[^\\s@<>,;\"'\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]{1,64}@[^\\s@<>,;\"'\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]{1,190}\\."
+                    + "[^\\s@<>,;\"'\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]{2,63}");
 
     private final EnviadorDeEmail enviador;
     private final String nomeApp;
@@ -71,8 +74,12 @@ public class EmailsDeAcesso {
         enviador.enviar(new EnviadorDeEmail.Mensagem(para, "Convite - " + nomeApp, texto, html, nomeRemetente, responderPara, remetente));
     }
 
-    /** Formato de endereço aceito pela biblioteca (destinatário dos e-mails, {@code reply_to} e remetente próprio). */
-    static boolean enderecoValido(String endereco) {
+    /**
+     * Formato de endereço aceito pela biblioteca (destinatário dos e-mails, {@code reply_to} e remetente próprio): até 254
+     * caracteres, sem espaço, controle, formatação (bidi, largura zero) nem {@code @ < > , ; " '} dentro das partes. É a regra
+     * única: quem valida antes de chamar a biblioteca usa este método.
+     */
+    public static boolean enderecoValido(String endereco) {
         return endereco != null && endereco.length() <= 254 && ENDERECO.matcher(endereco).matches();
     }
 

@@ -187,8 +187,24 @@ class EmailTest {
     void fromComNomeFicaNomeViaAppEEnderecoDaConfiguracao() {
         JsonNode json = enviarEJson(com("Academia Silva", null, null));
 
-        assertThat(json.get("from").asString()).isEqualTo("Academia Silva via App de Teste <contato@exemplo.test>");
+        assertThat(json.get("from").asString()).isEqualTo("\"Academia Silva via App de Teste\" <contato@exemplo.test>");
         assertThat(json.has("reply_to")).isFalse();
+    }
+
+    @Test
+    void nomeComVirgulaDoisPontosEArrobaSaiEntreAspasEOCabecalhoNaoQuebra() {
+        JsonNode json = enviarEJson(com("Silva, Ana: (a@b)", null, null));
+
+        assertThat(json.get("from").asString()).isEqualTo("\"Silva, Ana: (a@b) via App de Teste\" <contato@exemplo.test>");
+    }
+
+    @Test
+    void aspasEBarraDoNomeDoAppSaoEscapadasNoFrom() {
+        EmailProperties props = new EmailProperties(true, "resend", "contato@exemplo.test", "App \"X\" \\ Y",
+                new EmailProperties.Resend(CHAVE, urlDoServidor("/emails"), Duration.ofSeconds(2), Duration.ofSeconds(5)));
+        new EnviadorResend(props).enviar(com("Ana", null, null));
+        assertThat(JsonMapper.builder().build().readTree(corpo.get()).get("from").asString())
+                .isEqualTo("\"Ana via App \\\"X\\\" \\\\ Y\" <contato@exemplo.test>");
     }
 
     @Test
@@ -203,7 +219,7 @@ class EmailTest {
     @Test
     void remetenteProprioTomaOLugarDoEnderecoPadrao() {
         assertThat(enviarEJson(com("Academia Silva", "t@x.com", "convites@exemplo.test")).get("from").asString())
-                .isEqualTo("Academia Silva via App de Teste <convites@exemplo.test>");
+                .isEqualTo("\"Academia Silva via App de Teste\" <convites@exemplo.test>");
         // Só o endereço: mantém o nome de exibição da configuração.
         assertThat(enviarEJson(com(null, null, "convites@exemplo.test")).get("from").asString())
                 .isEqualTo("App de Teste <convites@exemplo.test>");
@@ -214,7 +230,7 @@ class EmailTest {
         EmailProperties props = new EmailProperties(true, "resend", "contato@exemplo.test", "App de Teste",
                 new EmailProperties.Resend(CHAVE, urlDoServidor("/emails"), Duration.ofSeconds(2), Duration.ofSeconds(5)));
         new EnviadorResend(props).enviar(com("Ana", null, null));
-        assertThat(JsonMapper.builder().build().readTree(corpo.get()).get("from").asString()).isEqualTo("Ana via App de Teste <contato@exemplo.test>");
+        assertThat(JsonMapper.builder().build().readTree(corpo.get()).get("from").asString()).isEqualTo("\"Ana via App de Teste\" <contato@exemplo.test>");
         new EnviadorResend(props).enviar(com(null, null, "outro@exemplo.test"));
         assertThat(JsonMapper.builder().build().readTree(corpo.get()).get("from").asString()).isEqualTo("outro@exemplo.test");
     }
@@ -228,6 +244,38 @@ class EmailTest {
         }
         assertThat(com("a".repeat(60), null, null).nomeRemetente()).hasSize(60);
         assertThat(com("Academia São José - Treino & Dieta", null, null).nomeRemetente()).isNotNull();
+    }
+
+    // Montados por código (e não por escape no fonte): o Error Prone recusa os de direção, como U+202E e U+2066, mesmo escapados.
+    private static String u(int codePoint) {
+        return Character.toString(codePoint);
+    }
+
+    @Test
+    void nomeRecusaBarraInvertidaEUnicodeEnganoso() {
+        // U+202E inverte o texto, U+200B/U+200F/U+FEFF somem na tela, U+2066 isola direção, U+E0001 é marca de idioma (Cf fora do BMP).
+        for (String nome : new String[] {"Ana\\Silva", "\\", "Ana" + u(0x202E) + "Silva", "Ana" + u(0x200B) + "Silva", "Ana" + u(0x200F),
+                u(0xFEFF) + "Ana", "Ana" + u(0x2066), "Ana" + u(0xE0001)}) {
+            assertThatThrownBy(() -> com(nome, null, null)).isInstanceOf(IllegalArgumentException.class).hasMessageNotContaining("Ana");
+            assertThat(EnviadorDeEmail.nomeValido(nome)).isFalse();
+        }
+        assertThat(EnviadorDeEmail.nomeValido("Academia São José, Treino: A@B (1)")).isTrue();
+        assertThat(EnviadorDeEmail.nomeValido(null)).isFalse();
+        assertThat(EnviadorDeEmail.proibidoNoNomeDoRemetente('\\')).isTrue();
+        assertThat(EnviadorDeEmail.proibidoNoNomeDoRemetente('é')).isFalse();
+    }
+
+    @Test
+    void enderecoRecusaControleEFormatacaoMasAceitaOComum() {
+        for (String endereco : new String[] {"a" + u(0x200B) + "@b.com", "a@b" + u(0x200B) + ".com", "a@b.c" + u(0x202E) + "om", u(0xFEFF) + "a@b.com",
+                "a@b.com" + u(0x85), "a@b.com" + u(0x2028)}) {
+            assertThat(EmailsDeAcesso.enderecoValido(endereco)).isFalse();
+            assertThatThrownBy(() -> com(null, endereco, null)).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> com(null, null, endereco)).isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThat(EmailsDeAcesso.enderecoValido("ana.silva+x@exemplo.com.br")).isTrue();
+        assertThat(EmailsDeAcesso.enderecoValido("x".repeat(250) + "@t.local")).isFalse();
+        assertThat(EmailsDeAcesso.enderecoValido(null)).isFalse();
     }
 
     @Test
