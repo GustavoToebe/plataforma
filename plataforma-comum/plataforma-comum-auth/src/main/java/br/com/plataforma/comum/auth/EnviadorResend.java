@@ -1,6 +1,7 @@
 package br.com.plataforma.comum.auth;
 
 import java.net.http.HttpClient;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -24,6 +25,7 @@ final class EnviadorResend implements EnviadorDeEmail {
     private final String url;
     private final String chave;
     private final String remetente;
+    private final String nomeApp;
 
     EnviadorResend(EmailProperties propriedades) {
         EmailProperties.Resend resend = propriedades.resend();
@@ -37,16 +39,40 @@ final class EnviadorResend implements EnviadorDeEmail {
         this.url = resend.url();
         this.chave = resend.apiKey();
         this.remetente = propriedades.remetente();
+        this.nomeApp = propriedades.nomeApp();
+    }
+
+    /**
+     * Sem nome nem remetente próprio, o {@code from} da configuração, sem mudar um byte. Com nome: {@code "<nome> via <app> <endereço>"}.
+     * Só com remetente próprio: o nome de exibição da configuração (se houver) com o endereço novo.
+     */
+    private String de(Mensagem mensagem) {
+        if (mensagem.nomeRemetente() == null && mensagem.remetente() == null) {
+            return remetente;
+        }
+        int abre = remetente.lastIndexOf('<');
+        int fecha = remetente.lastIndexOf('>');
+        boolean comNome = abre >= 0 && fecha > abre;
+        String endereco = mensagem.remetente() != null ? mensagem.remetente()
+                : comNome ? remetente.substring(abre + 1, fecha).trim() : remetente.trim();
+        if (mensagem.nomeRemetente() != null) {
+            return mensagem.nomeRemetente() + " via " + nomeApp + " <" + endereco + ">";
+        }
+        String exibicao = comNome ? remetente.substring(0, abre).trim() : "";
+        return exibicao.isEmpty() ? endereco : exibicao + " <" + endereco + ">";
     }
 
     @Override
     public void enviar(Mensagem mensagem) {
-        Map<String, Object> corpo = Map.of(
-                "from", remetente,
-                "to", List.of(mensagem.para()),
-                "subject", mensagem.assunto(),
-                "text", mensagem.texto(),
-                "html", mensagem.html());
+        Map<String, Object> corpo = new LinkedHashMap<>();
+        corpo.put("from", de(mensagem));
+        corpo.put("to", List.of(mensagem.para()));
+        corpo.put("subject", mensagem.assunto());
+        corpo.put("text", mensagem.texto());
+        corpo.put("html", mensagem.html());
+        if (mensagem.responderPara() != null) {
+            corpo.put("reply_to", List.of(mensagem.responderPara()));
+        }
         try {
             ResponseEntity<Void> resposta = cliente.post()
                     .uri(url)
