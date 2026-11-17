@@ -164,6 +164,177 @@ class EmailTest {
         assertThat(resend(Duration.ofSeconds(1)).resend().toString()).doesNotContain(CHAVE);
     }
 
+    // ---- Remetente próprio (1.10.0) ----
+
+    private JsonNode enviarEJson(EnviadorDeEmail.Mensagem m) {
+        new EnviadorResend(resend(Duration.ofSeconds(5))).enviar(m);
+        return JsonMapper.builder().build().readTree(corpo.get());
+    }
+
+    private static EnviadorDeEmail.Mensagem com(String nome, String responderPara, String remetente) {
+        return new EnviadorDeEmail.Mensagem("ana@x.com", "Assunto", "Texto", "<p>Texto</p>", nome, responderPara, remetente);
+    }
+
+    @Test
+    void construtorDeQuatroCamposMandaARequisicaoDeAntes() {
+        JsonNode json = enviarEJson(mensagem());
+
+        assertThat(json.propertyNames()).containsExactlyInAnyOrder("from", "to", "subject", "text", "html");
+        assertThat(json.get("from").asString()).isEqualTo("App de Teste <contato@exemplo.test>");
+    }
+
+    @Test
+    void fromComNomeFicaNomeViaAppEEnderecoDaConfiguracao() {
+        JsonNode json = enviarEJson(com("Academia Silva", null, null));
+
+        assertThat(json.get("from").asString()).isEqualTo("\"Academia Silva via App de Teste\" <contato@exemplo.test>");
+        assertThat(json.has("reply_to")).isFalse();
+    }
+
+    @Test
+    void nomeComVirgulaDoisPontosEArrobaSaiEntreAspasEOCabecalhoNaoQuebra() {
+        JsonNode json = enviarEJson(com("Silva, Ana: (a@b)", null, null));
+
+        assertThat(json.get("from").asString()).isEqualTo("\"Silva, Ana: (a@b) via App de Teste\" <contato@exemplo.test>");
+    }
+
+    @Test
+    void aspasEBarraDoNomeDoAppSaoEscapadasNoFrom() {
+        EmailProperties props = new EmailProperties(true, "resend", "contato@exemplo.test", "App \"X\" \\ Y",
+                new EmailProperties.Resend(CHAVE, urlDoServidor("/emails"), Duration.ofSeconds(2), Duration.ofSeconds(5)));
+        new EnviadorResend(props).enviar(com("Ana", null, null));
+        assertThat(JsonMapper.builder().build().readTree(corpo.get()).get("from").asString())
+                .isEqualTo("\"Ana via App \\\"X\\\" \\\\ Y\" <contato@exemplo.test>");
+    }
+
+    @Test
+    void replyToSoAparecePedido() {
+        JsonNode json = enviarEJson(com(null, "treinador@x.com", null));
+
+        assertThat(json.get("reply_to").get(0).asString()).isEqualTo("treinador@x.com");
+        assertThat(json.get("reply_to")).hasSize(1);
+        assertThat(json.get("from").asString()).isEqualTo("App de Teste <contato@exemplo.test>");
+    }
+
+    @Test
+    void remetenteProprioTomaOLugarDoEnderecoPadrao() {
+        assertThat(enviarEJson(com("Academia Silva", "t@x.com", "convites@exemplo.test")).get("from").asString())
+                .isEqualTo("\"Academia Silva via App de Teste\" <convites@exemplo.test>");
+        // Só o endereço: mantém o nome de exibição da configuração.
+        assertThat(enviarEJson(com(null, null, "convites@exemplo.test")).get("from").asString())
+                .isEqualTo("App de Teste <convites@exemplo.test>");
+    }
+
+    @Test
+    void configuracaoSoComEnderecoTambemFunciona() {
+        EmailProperties props = new EmailProperties(true, "resend", "contato@exemplo.test", "App de Teste",
+                new EmailProperties.Resend(CHAVE, urlDoServidor("/emails"), Duration.ofSeconds(2), Duration.ofSeconds(5)));
+        new EnviadorResend(props).enviar(com("Ana", null, null));
+        assertThat(JsonMapper.builder().build().readTree(corpo.get()).get("from").asString()).isEqualTo("\"Ana via App de Teste\" <contato@exemplo.test>");
+        new EnviadorResend(props).enviar(com(null, null, "outro@exemplo.test"));
+        assertThat(JsonMapper.builder().build().readTree(corpo.get()).get("from").asString()).isEqualTo("outro@exemplo.test");
+    }
+
+    @Test
+    void nomeRecusaQuebraDeLinhaSinaisAspasControleVazioEMaisDeSessenta() {
+        for (String nome : new String[] {"Ana\rBcc: x@y.com", "Ana\nBcc: x@y.com", "Ana <x@y.com>", "Ana<", "Ana>", "Ana \"Silva\"", "Ana\u0000",
+                "Ana\u007f", "Ana\u0085", "Ana\u2028", "", "   ", "a".repeat(61)}) {
+            assertThatThrownBy(() -> com(nome, null, null)).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageNotContaining("Bcc").hasMessageNotContaining("Silva");
+        }
+        assertThat(com("a".repeat(60), null, null).nomeRemetente()).hasSize(60);
+        assertThat(com("Academia São José - Treino & Dieta", null, null).nomeRemetente()).isNotNull();
+    }
+
+    // Montados por código (e não por escape no fonte): o Error Prone recusa os de direção, como U+202E e U+2066, mesmo escapados.
+    private static String u(int codePoint) {
+        return Character.toString(codePoint);
+    }
+
+    @Test
+    void nomeRecusaBarraInvertidaEUnicodeEnganoso() {
+        // U+202E inverte o texto, U+200B/U+200F/U+FEFF somem na tela, U+2066 isola direção, U+E0001 é marca de idioma (Cf fora do BMP).
+        for (String nome : new String[] {"Ana\\Silva", "\\", "Ana" + u(0x202E) + "Silva", "Ana" + u(0x200B) + "Silva", "Ana" + u(0x200F),
+                u(0xFEFF) + "Ana", "Ana" + u(0x2066), "Ana" + u(0xE0001)}) {
+            assertThatThrownBy(() -> com(nome, null, null)).isInstanceOf(IllegalArgumentException.class).hasMessageNotContaining("Ana");
+            assertThat(EnviadorDeEmail.nomeValido(nome)).isFalse();
+        }
+        assertThat(EnviadorDeEmail.nomeValido("Academia São José, Treino: A@B (1)")).isTrue();
+        assertThat(EnviadorDeEmail.nomeValido(null)).isFalse();
+        assertThat(EnviadorDeEmail.proibidoNoNomeDoRemetente('\\')).isTrue();
+        assertThat(EnviadorDeEmail.proibidoNoNomeDoRemetente('é')).isFalse();
+    }
+
+    @Test
+    void enderecoRecusaControleEFormatacaoMasAceitaOComum() {
+        for (String endereco : new String[] {"a" + u(0x200B) + "@b.com", "a@b" + u(0x200B) + ".com", "a@b.c" + u(0x202E) + "om", u(0xFEFF) + "a@b.com",
+                "a@b.com" + u(0x85), "a@b.com" + u(0x2028)}) {
+            assertThat(EmailsDeAcesso.enderecoValido(endereco)).isFalse();
+            assertThatThrownBy(() -> com(null, endereco, null)).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> com(null, null, endereco)).isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThat(EmailsDeAcesso.enderecoValido("ana.silva+x@exemplo.com.br")).isTrue();
+        assertThat(EmailsDeAcesso.enderecoValido("x".repeat(250) + "@t.local")).isFalse();
+        assertThat(EmailsDeAcesso.enderecoValido(null)).isFalse();
+    }
+
+    @Test
+    void responderParaERemetenteUsamAValidacaoDeEnderecoDaBiblioteca() {
+        for (String invalido : new String[] {"a@b.com, c@d.com", "a@b.com\nBcc: x@y.com", "sem-arroba", "a b@c.com", "<a@b.com>", "", "Nome <a@b.com>"}) {
+            assertThatThrownBy(() -> com(null, invalido, null)).isInstanceOf(IllegalArgumentException.class).hasMessageNotContaining("Bcc")
+                    .hasMessageNotContaining("sem-arroba");
+            assertThatThrownBy(() -> com(null, null, invalido)).isInstanceOf(IllegalArgumentException.class).hasMessageNotContaining("Bcc")
+                    .hasMessageNotContaining("sem-arroba");
+        }
+    }
+
+    @Test
+    void toStringDaMensagemComRemetenteNaoMostraConteudo() {
+        EnviadorDeEmail.Mensagem m = com("Academia Silva", "t@x.com", "convites@exemplo.test");
+
+        assertThat(m).hasToString("Mensagem[***]");
+        assertThat(m.toString()).doesNotContain("Silva").doesNotContain("t@x.com").doesNotContain("ana@x.com").doesNotContain("convites");
+    }
+
+    @Test
+    void conviteComRemetenteLevaOsTresCamposESegueComOMesmoTexto() {
+        Capturador capturador = new Capturador();
+        EmailsDeAcesso emails = new EmailsDeAcesso(capturador, log());
+        emails.enviarConvite("bia@x.com", LINK, "Academia Silva", "treinador@x.com", "convites@exemplo.test");
+        emails.enviarConvite("bia@x.com", LINK);
+
+        EnviadorDeEmail.Mensagem com = capturador.mensagens.get(0);
+        assertThat(com.nomeRemetente()).isEqualTo("Academia Silva");
+        assertThat(com.responderPara()).isEqualTo("treinador@x.com");
+        assertThat(com.remetente()).isEqualTo("convites@exemplo.test");
+        EnviadorDeEmail.Mensagem sem = capturador.mensagens.get(1);
+        assertThat(sem.nomeRemetente()).isNull();
+        assertThat(sem.responderPara()).isNull();
+        assertThat(sem.remetente()).isNull();
+        assertThat(com.assunto()).isEqualTo(sem.assunto());
+        assertThat(com.texto()).isEqualTo(sem.texto());
+        assertThat(com.html()).isEqualTo(sem.html());
+    }
+
+    @Test
+    void conviteComRemetenteInvalidoNaoSai() {
+        Capturador capturador = new Capturador();
+        EmailsDeAcesso emails = new EmailsDeAcesso(capturador, log());
+
+        assertThatThrownBy(() -> emails.enviarConvite("bia@x.com", LINK, "Ana\nBcc", null, null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> emails.enviarConvite("bia@x.com", LINK, "Ana", "sem-arroba", null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> emails.enviarConvite("bia@x.com", LINK, "Ana", null, "sem-arroba")).isInstanceOf(IllegalArgumentException.class);
+        assertThat(capturador.mensagens).isEmpty();
+    }
+
+    @Test
+    void provedorLogContinuaSemRegistrarRemetente(CapturedOutput saida) {
+        new EnviadorRegistro().enviar(com("Academia Silva", "t@x.com", "convites@exemplo.test"));
+
+        assertThat(saida.getAll()).contains("não enviado").doesNotContain("Silva").doesNotContain("t@x.com").doesNotContain("convites")
+                .doesNotContain("ana@x.com");
+    }
+
     // ---- Provedor log ----
 
     @Test

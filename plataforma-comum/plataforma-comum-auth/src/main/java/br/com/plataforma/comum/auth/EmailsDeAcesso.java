@@ -10,7 +10,10 @@ import java.util.regex.Pattern;
  */
 public class EmailsDeAcesso {
 
-    private static final Pattern ENDERECO = Pattern.compile("[^\\s@<>,;\"']{1,64}@[^\\s@<>,;\"']{1,190}\\.[^\\s@<>,;\"']{2,63}");
+    // \p{Cc} (controle, inclui U+0085), \p{Cf} (formatação) e \p{Zl}/\p{Zp} (separadores de linha e de parágrafo) fora das três partes.
+    private static final Pattern ENDERECO = Pattern.compile(
+            "[^\\s@<>,;\"'\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]{1,64}@[^\\s@<>,;\"'\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]{1,190}\\."
+                    + "[^\\s@<>,;\"'\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]{2,63}");
 
     private final EnviadorDeEmail enviador;
     private final String nomeApp;
@@ -46,6 +49,19 @@ public class EmailsDeAcesso {
      * @throws EnvioDeEmailException se o provedor não aceitou
      */
     public void enviarConvite(String para, String link) {
+        enviarConvite(para, link, null, null, null);
+    }
+
+    /**
+     * Convite com remetente próprio (convite de equipe de uma consultoria): o texto é o mesmo, só o cabeçalho muda.
+     *
+     * @param nomeRemetente quem convida, só no {@code from} ({@code "<nome> via <app> <endereço>"}); nulo = o remetente da configuração
+     * @param responderPara endereço do {@code reply_to}; nulo = sem
+     * @param remetente     endereço do {@code from} no lugar do padrão; nulo = o da configuração
+     * @throws IllegalArgumentException se o nome ou um endereço for inválido (a mensagem não repete o valor)
+     * @throws EnvioDeEmailException    se o provedor não aceitou
+     */
+    public void enviarConvite(String para, String link, String nomeRemetente, String responderPara, String remetente) {
         conferir(para, link);
         String texto = "Você recebeu um convite para acessar o " + nomeApp + ".\n\n"
                 + "Para começar, abra o link abaixo.\n\n"
@@ -55,11 +71,20 @@ public class EmailsDeAcesso {
                 + "<p>Para começar, abra o link abaixo.</p>"
                 + "<p><a href=\"" + escapar(link) + "\">" + escapar(link) + "</a></p>"
                 + "<p>Se você não esperava este convite, ignore esta mensagem.</p>";
-        enviador.enviar(new EnviadorDeEmail.Mensagem(para, "Convite - " + nomeApp, texto, html));
+        enviador.enviar(new EnviadorDeEmail.Mensagem(para, "Convite - " + nomeApp, texto, html, nomeRemetente, responderPara, remetente));
+    }
+
+    /**
+     * Formato de endereço aceito pela biblioteca (destinatário dos e-mails, {@code reply_to} e remetente próprio): até 254
+     * caracteres, sem espaço, controle, formatação (bidi, largura zero) nem {@code @ < > , ; " '} dentro das partes. É a regra
+     * única: quem valida antes de chamar a biblioteca usa este método.
+     */
+    public static boolean enderecoValido(String endereco) {
+        return endereco != null && endereco.length() <= 254 && ENDERECO.matcher(endereco).matches();
     }
 
     private static void conferir(String para, String link) {
-        if (para == null || para.length() > 254 || !ENDERECO.matcher(para).matches()) {
+        if (!enderecoValido(para)) {
             throw new IllegalArgumentException("Endereço de e-mail inválido.");
         }
         if (!EmailProperties.UrlsDeLink.valida(link)) {
